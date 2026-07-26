@@ -1,0 +1,13 @@
+current_network,added_landscape,richness_before,richness_after,gain
+Nenhuma paisagem,Floodplain,0,11,11
+Nenhuma paisagem,Cerrado,0,6,6
+Nenhuma paisagem,Pantanal,0,6,6
+Pantanal,Floodplain,6,16,10
+Cerrado,Floodplain,6,15,9
+Pantanal,Cerrado,6,9,3
+Cerrado,Pantanal,6,9,3
+Cerrado + Pantanal,Floodplain,9,17,8
+Floodplain,Pantanal,11,16,5
+Floodplain,Cerrado,11,15,4
+Cerrado + Floodplain,Pantanal,15,17,2
+Floodplain + Pantanal,Cerrado,16,17,1

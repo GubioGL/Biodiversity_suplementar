@@ -1,0 +1,4 @@
+comparison,paisagem_1,paisagem_2,total_beta,turnover,nestedness
+Cerrado vs Floodplain,Cerrado,Floodplain,0.8666666666666667,0.8,0.06666666666666667
+Cerrado vs Pantanal,Cerrado,Pantanal,0.6666666666666666,0.6666666666666666,0
+Floodplain vs Pantanal,Floodplain,Pantanal,0.9375,0.9090909090909091,0.02840909090909091
