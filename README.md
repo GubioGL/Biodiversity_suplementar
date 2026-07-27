@@ -1,4 +1,4 @@
-# [Título do artigo aqui]
+# Not all paper dissolves in water: social wasps (Vespidae: Polistinae) in protected areas of Mato Grosso do Sul
 
 **Autores:** [Nome 1, Nome 2, Nome 3, ...]
 
