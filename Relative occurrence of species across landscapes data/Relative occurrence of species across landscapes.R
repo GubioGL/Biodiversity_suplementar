@@ -1,4 +1,4 @@
-# Relative occurrence of social wasp species across landscapes
+set.seed(123)
 
 options(
   repos = c(CRAN = "https://cloud.r-project.org"),
@@ -10,11 +10,15 @@ required_packages <- c(
   "tidyr",
   "readr",
   "stringr",
+  "tibble",
   "janitor",
   "vegan",
+  "ggplot2",
   "png",
   "jpeg",
-  "rstudioapi"
+  "tiff",
+  "ragg",
+  "systemfonts"
 )
 
 missing_packages <- required_packages[
@@ -27,2287 +31,740 @@ missing_packages <- required_packages[
 ]
 
 if (length(missing_packages) > 0) {
-  
-  message(
-    "Installing missing packages: ",
-    paste(
-      missing_packages,
-      collapse = ", "
-    )
-  )
-  
   install.packages(
     missing_packages,
-    dependencies = c(
-      "Depends",
-      "Imports",
-      "LinkingTo"
-    )
+    dependencies = c("Depends", "Imports", "LinkingTo")
   )
 }
 
-packages_still_missing <- required_packages[
-  !vapply(
-    required_packages,
-    requireNamespace,
-    logical(1),
-    quietly = TRUE
-  )
-]
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(readr)
+  library(stringr)
+  library(tibble)
+  library(janitor)
+  library(vegan)
+  library(ggplot2)
+})
 
-if (length(packages_still_missing) > 0) {
-  
-  stop(
-    "The following packages could not be installed: ",
-    paste(
-      packages_still_missing,
-      collapse = ", "
-    ),
-    ". Check the internet connection and run the script again."
-  )
-}
-
-invisible(
-  lapply(
-    required_packages,
-    library,
-    character.only = TRUE
-  )
+base_directory <- paste0(
+  "C:/Users/João Marcos/Desktop/DOUTORADO/analises/",
+  "Not all paper dissolves in water social wasps/",
+  "material_suplementar/",
+  "Relative occurrence of species across landscapes data"
 )
 
-
-# ----------------------------------------------------------
-# Folder-location functions
-# ----------------------------------------------------------
-
-normalize_directory_name <- function(x) {
-  
-  x <- iconv(
-    x,
-    from = "",
-    to = "ASCII//TRANSLIT"
-  )
-  
-  x <- tolower(x)
-  
-  x <- gsub(
-    "[^a-z0-9]+",
-    " ",
-    x
-  )
-  
-  stringr::str_squish(x)
-}
-
-
-get_starting_directories <- function() {
-  
-  directories <- character(0)
-  
-  if (
-    requireNamespace(
-      "rstudioapi",
-      quietly = TRUE
-    ) &&
-    rstudioapi::isAvailable()
-  ) {
-    
-    active_document <- tryCatch(
-      rstudioapi::getActiveDocumentContext()$path,
-      error = function(e) ""
-    )
-    
-    source_document <- tryCatch(
-      rstudioapi::getSourceEditorContext()$path,
-      error = function(e) ""
-    )
-    
-    document_paths <- c(
-      active_document,
-      source_document
-    )
-    
-    document_paths <- document_paths[
-      !is.na(document_paths) &
-        nzchar(document_paths) &
-        file.exists(document_paths)
-    ]
-    
-    if (length(document_paths) > 0) {
-      
-      directories <- c(
-        directories,
-        dirname(document_paths)
-      )
-    }
-  }
-  
-  command_arguments <- commandArgs(
-    trailingOnly = FALSE
-  )
-  
-  script_argument <- grep(
-    "^--file=",
-    command_arguments,
-    value = TRUE
-  )
-  
-  if (length(script_argument) > 0) {
-    
-    script_path <- sub(
-      "^--file=",
-      "",
-      script_argument[1]
-    )
-    
-    if (file.exists(script_path)) {
-      
-      directories <- c(
-        directories,
-        dirname(
-          normalizePath(
-            script_path,
-            winslash = "/",
-            mustWork = TRUE
-          )
-        )
-      )
-    }
-  }
-  
-  frame_paths <- vapply(
-    sys.frames(),
-    function(frame) {
-      
-      if (
-        !is.null(frame$ofile) &&
-        length(frame$ofile) == 1
-      ) {
-        as.character(frame$ofile)
-      } else {
-        NA_character_
-      }
-    },
-    character(1)
-  )
-  
-  frame_paths <- frame_paths[
-    !is.na(frame_paths) &
-      nzchar(frame_paths) &
-      file.exists(frame_paths)
-  ]
-  
-  if (length(frame_paths) > 0) {
-    
-    directories <- c(
-      directories,
-      dirname(frame_paths)
-    )
-  }
-  
-  directories <- c(
-    directories,
-    getwd()
-  )
-  
-  directories <- unique(
-    directories[
-      dir.exists(directories)
-    ]
-  )
-  
-  directories
-}
-
-
-add_parent_directories <- function(
-    directory,
-    maximum_levels = 10
-) {
-  
-  result <- directory
-  current_directory <- directory
-  
-  for (i in seq_len(maximum_levels)) {
-    
-    parent_directory <- dirname(
-      current_directory
-    )
-    
-    if (
-      identical(
-        parent_directory,
-        current_directory
-      )
-    ) {
-      break
-    }
-    
-    result <- c(
-      result,
-      parent_directory
-    )
-    
-    current_directory <- parent_directory
-  }
-  
-  unique(result)
-}
-
-
-locate_analysis_directory <- function() {
-  
-  target_directory_name <-
-    "Relative occurrence of species across landscapes data"
-  
-  target_normalized <- normalize_directory_name(
-    target_directory_name
-  )
-  
-  starting_directories <- get_starting_directories()
-  
-  candidate_directories <- unique(
-    unlist(
-      lapply(
-        starting_directories,
-        add_parent_directories
-      ),
-      use.names = FALSE
-    )
-  )
-  
-  candidate_directories <- candidate_directories[
-    dir.exists(candidate_directories)
-  ]
-  
-  direct_matches <- candidate_directories[
-    normalize_directory_name(
-      basename(candidate_directories)
-    ) == target_normalized
-  ]
-  
-  if (length(direct_matches) > 0) {
-    
-    return(
-      normalizePath(
-        direct_matches[1],
-        winslash = "/",
-        mustWork = TRUE
-      )
-    )
-  }
-  
-  possible_paths <- unique(
-    unlist(
-      lapply(
-        candidate_directories,
-        function(directory) {
-          
-          c(
-            file.path(
-              directory,
-              target_directory_name
-            ),
-            file.path(
-              directory,
-              "material_suplementar",
-              target_directory_name
-            )
-          )
-        }
-      ),
-      use.names = FALSE
-    )
-  )
-  
-  possible_paths <- possible_paths[
-    dir.exists(possible_paths)
-  ]
-  
-  if (length(possible_paths) > 0) {
-    
-    return(
-      normalizePath(
-        possible_paths[1],
-        winslash = "/",
-        mustWork = TRUE
-      )
-    )
-  }
-  
-  if (
-    interactive() &&
-    .Platform$OS.type == "windows"
-  ) {
-    
-    selected_directory <- utils::choose.dir(
-      caption = paste(
-        "Select the folder:",
-        target_directory_name
-      )
-    )
-    
-    if (
-      length(selected_directory) == 1 &&
-      !is.na(selected_directory) &&
-      nzchar(selected_directory) &&
-      dir.exists(selected_directory)
-    ) {
-      
-      return(
-        normalizePath(
-          selected_directory,
-          winslash = "/",
-          mustWork = TRUE
-        )
-      )
-    }
-  }
-  
-  stop(
-    "The analysis directory could not be located. ",
-    "Open or save this script inside the folder '",
-    target_directory_name,
-    "' and run it again."
-  )
-}
-
-
-locate_data_file <- function(
-    analysis_directory
-) {
-  parent_directory <- dirname(
-    analysis_directory
-  )
-
-  possible_directories <- unique(
-    c(
-      analysis_directory,
-      file.path(
-        analysis_directory,
-        "data"
-      ),
-      file.path(
-        parent_directory,
-        "data"
-      )
-    )
-  )
-
-  possible_directories <- possible_directories[
-    dir.exists(possible_directories)
-  ]
-
-  csv_files <- unique(
-    unlist(
-      lapply(
-        possible_directories,
-        function(directory) {
-          list.files(
-            path = directory,
-            pattern = "\\.csv$",
-            full.names = TRUE,
-            recursive = FALSE,
-            ignore.case = TRUE
-          )
-        }
-      ),
-      use.names = FALSE
-    )
-  )
-
-  csv_files <- csv_files[
-    file.exists(csv_files)
-  ]
-
-  preferred_files <- csv_files[
-    grepl(
-      "^dados\\.csv$",
-      basename(csv_files),
-      ignore.case = TRUE
-    )
-  ]
-
-  if (length(preferred_files) == 1) {
-    return(
-      normalizePath(
-        preferred_files[1],
-        winslash = "/",
-        mustWork = TRUE
-      )
-    )
-  }
-
-  if (length(preferred_files) > 1) {
-    csv_files <- preferred_files
-  }
-
-  if (length(csv_files) == 1) {
-    return(
-      normalizePath(
-        csv_files[1],
-        winslash = "/",
-        mustWork = TRUE
-      )
-    )
-  }
-
-  if (
-    length(csv_files) > 1 &&
-    interactive()
-  ) {
-    selected_file <- utils::select.list(
-      choices = csv_files,
-      preselect = csv_files[1],
-      multiple = FALSE,
-      title = "Select the occurrence dataset",
-      graphics = .Platform$OS.type == "windows"
-    )
-
-    if (
-      length(selected_file) == 1 &&
-      nzchar(selected_file)
-    ) {
-      return(
-        normalizePath(
-          selected_file,
-          winslash = "/",
-          mustWork = TRUE
-        )
-      )
-    }
-  }
-
-  if (interactive()) {
-    message(
-      "The dataset was not found automatically. ",
-      "Select the dados.csv file."
-    )
-
-    selected_file <- tryCatch(
-      file.choose(),
-      error = function(e) ""
-    )
-
-    if (
-      length(selected_file) == 1 &&
-      nzchar(selected_file) &&
-      file.exists(selected_file) &&
-      tolower(
-        tools::file_ext(selected_file)
-      ) == "csv"
-    ) {
-      return(
-        normalizePath(
-          selected_file,
-          winslash = "/",
-          mustWork = TRUE
-        )
-      )
-    }
-  }
-
-  stop(
-    "No CSV file named 'dados.csv' was found in: ",
-    paste(
-      possible_directories,
-      collapse = "\n"
-    )
-  )
-}
-
-
-locate_image_directory <- function(
-    analysis_directory
-) {
-  parent_directory <- dirname(
-    analysis_directory
-  )
-
-  data_directory <- file.path(
-    parent_directory,
-    "data"
-  )
-
-  if (dir.exists(data_directory)) {
-    return(
-      normalizePath(
-        data_directory,
-        winslash = "/",
-        mustWork = TRUE
-      )
-    )
-  }
-  
-  target_name <-
-    "Relative occurrence of species across landscapes"
-  
-  expected_directory <- file.path(
-    analysis_directory,
-    target_name
-  )
-  
-  if (dir.exists(expected_directory)) {
-    
-    return(
-      normalizePath(
-        expected_directory,
-        winslash = "/",
-        mustWork = TRUE
-      )
-    )
-  }
-  
-  subdirectories <- list.dirs(
-    path = analysis_directory,
-    full.names = TRUE,
-    recursive = FALSE
-  )
-  
-  subdirectories <- subdirectories[
-    dir.exists(subdirectories)
-  ]
-  
-  matched_directories <- subdirectories[
-    normalize_directory_name(
-      basename(subdirectories)
-    ) ==
-      normalize_directory_name(
-        target_name
-      )
-  ]
-  
-  if (length(matched_directories) > 0) {
-    
-    return(
-      normalizePath(
-        matched_directories[1],
-        winslash = "/",
-        mustWork = TRUE
-      )
-    )
-  }
-  
-  stop(
-    "The image directory was not found. Expected directory:\n",
-    expected_directory
-  )
-}
-
-
-analysis_directory <- locate_analysis_directory()
-
-file_csv <- locate_data_file(
-  analysis_directory
+analysis_directory <- normalizePath(
+  if (dir.exists(base_directory)) base_directory else getwd(),
+  winslash = "/",
+  mustWork = TRUE
 )
 
-image_directory <- locate_image_directory(
-  analysis_directory
+image_directory <- file.path(
+  analysis_directory,
+  "Relative occurrence of species across landscapes"
 )
+if (!dir.exists(image_directory)) {
+  image_directory <- analysis_directory
+}
 
 output_directory <- file.path(
   analysis_directory,
   "output"
 )
+dir.create(output_directory, recursive = TRUE, showWarnings = FALSE)
 
-dir.create(
-  output_directory,
-  recursive = TRUE,
-  showWarnings = FALSE
-)
-
-
-cat(
-  "Analysis directory:\n",
-  analysis_directory,
-  "\n\n",
-  sep = ""
-)
-
-cat(
-  "Dataset selected:\n",
-  file_csv,
-  "\n\n",
-  sep = ""
-)
-
-cat(
-  "Image directory:\n",
-  image_directory,
-  "\n\n",
-  sep = ""
-)
-
-cat(
-  "Output directory:\n",
-  output_directory,
-  "\n\n",
-  sep = ""
-)
-
-
-# ----------------------------------------------------------
-# Text functions
-# ----------------------------------------------------------
-
-clean_text <- function(x) {
-  
-  x <- as.character(x)
-  
-  stringr::str_squish(x)
+normalize_path_safe <- function(path) {
+  normalizePath(path, winslash = "/", mustWork = FALSE)
 }
 
+is_inside_directory <- function(paths, directory) {
+  normalized_paths <- normalize_path_safe(paths)
+  normalized_directory <- paste0(normalize_path_safe(directory), "/")
+  startsWith(normalized_paths, normalized_directory)
+}
+
+all_files_in_dir <- list.files(
+  path = analysis_directory,
+  full.names = TRUE,
+  recursive = TRUE
+)
+csv_files <- all_files_in_dir[
+  file.exists(all_files_in_dir) &
+    tolower(tools::file_ext(all_files_in_dir)) == "csv"
+]
+if (length(csv_files) > 0) {
+  csv_files <- csv_files[!is_inside_directory(csv_files, output_directory)]
+}
+preferred_csv <- csv_files[
+  startsWith(tolower(basename(csv_files)), "dados_utf8")
+]
+if (length(preferred_csv) > 0) {
+  csv_files <- preferred_csv
+}
+
+if (length(csv_files) > 0) {
+  file_csv <- normalizePath(csv_files[1], winslash = "/", mustWork = TRUE)
+} else {
+  if (interactive()) {
+    file_csv <- file.choose()
+  } else {
+    stop("Arquivo CSV não encontrado.")
+  }
+}
+
+figure_width_mm <- 180
+export_dpi <- 600
+font_candidates <- c("Arial", "Helvetica", "Liberation Sans", "Arimo")
+
+species_text_pt <- 9.2
+landscape_text_pt <- 9.2
+header_text_pt <- 9.5
+axis_title_pt <- 10.0
+small_text_pt <- 8.2
+
+margin_mm <- 3.0
+header_mm <- 9.5
+footer_mm <- 13.0
+photo_width_mm <- 45.0
+photo_label_mm <- 7.8
+photo_gap_mm <- 3.5
+frame_line_mm <- 0.65
+bar_outline_mm <- 0.16
+band_tint_alpha <- 0.08
+preview_on_screen <- interactive()
+
+landscape_order <- c("Pantanal", "Cerrado", "Floodplain")
+
+landscape_titles <- c(
+  "Pantanal" = "Pantanal",
+  "Cerrado" = "Cerrado",
+  "Floodplain" = "Floodplain"
+)
+
+landscape_sites <- c(
+  "Pantanal" = "",
+  "Cerrado" = "",
+  "Floodplain" = ""
+)
+
+landscape_colors <- c(
+  "Pantanal" = "#4E9B73",
+  "Cerrado" = "#C89A42",
+  "Floodplain" = "#6CA0E8"
+)
+
+background_color <- "white"
+
+pick_column <- function(data, candidates) {
+  matches <- names(data)[names(data) %in% candidates]
+  if (length(matches) == 0) return(NA_character_)
+  matches[1]
+}
 
 normalize_text <- function(x) {
-  
-  x <- as.character(x)
-  
-  x <- iconv(
-    x,
-    from = "",
-    to = "ASCII//TRANSLIT"
-  )
-  
-  x <- tolower(
-    stringr::str_squish(x)
-  )
-  
-  x
+  x <- iconv(as.character(x), from = "", to = "ASCII//TRANSLIT")
+  tolower(stringr::str_squish(x))
 }
 
-
 normalize_file_name <- function(x) {
-  
-  x <- tools::file_path_sans_ext(
-    basename(x)
-  )
-  
-  x <- iconv(
-    x,
-    from = "",
-    to = "ASCII//TRANSLIT"
-  )
-  
-  x <- tolower(x)
-  
-  x <- gsub(
-    "[^a-z0-9]+",
-    " ",
-    x
-  )
-  
+  x <- tools::file_path_sans_ext(basename(x))
+  x <- normalize_text(x)
+  x <- gsub("[^a-z0-9]+", " ", x)
   stringr::str_squish(x)
 }
 
-
-# ----------------------------------------------------------
-# Poncho function
-# ----------------------------------------------------------
-
-poncho <- function(
-    table,
-    col = 1,
-    col.places = 2,
-    col.species = 3,
-    col.gradient = "gray",
-    highlight.species = NA,
-    highlight.places = NA,
-    xyratio = 1.3333333333,
-    cex.species = NULL,
-    lwd = 1,
-    cex.lab = NULL,
-    cex.title = 3,
-    cex.gradient = 2,
-    gradient = NULL,
-    file = NULL,
-    title = NULL,
-    xlab = "Ordered places",
-    ylab = "Abundance",
-    show.grad = TRUE,
-    show.places = NULL,
-    xfactor = 0,
-    gradlab = "Gradient",
-    lty = 1,
-    lty.lines = 1,
-    border = 1,
-    decrease = FALSE,
-    add = FALSE,
-    spgradient = NULL
-) {
-  
-  if (is.null(file)) {
-    
-    if (is.null(cex.species)) {
-      cex.species <- 0.74
-    }
-    
-    if (is.null(cex.lab)) {
-      cex.lab <- 2
-    }
-    
-    if (is.null(cex.gradient)) {
-      cex.gradient <- 1.5
-    }
-  }
-  
-  if (is.null(cex.gradient)) {
-    cex.gradient <- 2
-  }
-  
-  if (is.null(cex.lab)) {
-    cex.lab <- 3
-  }
-  
-  if (!is.null(file)) {
-    
-    grDevices::pdf(
-      file = file,
-      paper = "A4",
-      width = 0,
-      height = 0
-    )
-  }
-  
-  graphics::par(
-    mar = c(
-      2,
-      2,
-      0.7,
-      0
-    )
-  )
-  
-  if (is.null(gradient)) {
-    
-    gradient <- stats::prcomp(
-      table
-    )$x[, 1]
-  }
-  
-  multiplier <- ifelse(
-    decrease == FALSE,
-    1,
-    -1
-  )
-  
-  row_order <- order(
-    multiplier * gradient
-  )
-  
-  if (!is.null(spgradient)) {
-    
-    species_order <- order(
-      spgradient
-    )
-    
-  } else {
-    
-    species_weight <- colSums(
-      table *
-        multiplier *
-        gradient
-    ) /
-      colSums(table)
-    
-    species_order <- order(
-      species_weight
-    )
-  }
-  
-  table_ordered <- table[
-    row_order,
-    species_order,
-    drop = FALSE
-  ]
-  
-  x <- 84
-  y <- x * xyratio
-  
-  dimx <- x /
-    nrow(table_ordered)
-  
-  dimy <- y /
-    ncol(table_ordered)
-  
-  gradient_space <- if (
-    is.null(show.grad)
-  ) {
-    0
-  } else {
-    22
-  }
-  
-  if (add == FALSE) {
-    
-    graphics::plot.new()
-    
-    graphics::plot.window(
-      xlim = c(
-        0,
-        106 + xfactor
-      ),
-      ylim = c(
-        0,
-        y + gradient_space + 12
-      )
-    )
-  }
-  
-  place_colors <- rep(
-    col,
-    nrow(table_ordered)
-  )
-  
-  ordered_place_matches <- match(
-    rownames(table_ordered),
-    highlight.places
-  )
-  
-  valid_place_matches <- !is.na(
-    ordered_place_matches
-  )
-  
-  if (
-    any(valid_place_matches) &&
-    length(col.places) >=
-    max(
-      ordered_place_matches[
-        valid_place_matches
-      ]
-    )
-  ) {
-    
-    place_colors[
-      valid_place_matches
-    ] <- col.places[
-      ordered_place_matches[
-        valid_place_matches
-      ]
-    ]
-  }
-  
-  maximum_value <- max(
-    table_ordered,
-    na.rm = TRUE
-  )
-  
-  if (
-    !is.finite(maximum_value) ||
-    maximum_value <= 0
-  ) {
-    
-    maximum_value <- 1
-  }
-  
-  for (i in seq_len(
-    ncol(table_ordered)
-  )) {
-    
-    species_match <- match(
-      highlight.species,
-      colnames(table_ordered)[i]
-    )
-    
-    if (
-      sum(
-        species_match,
-        na.rm = TRUE
-      ) != 0
-    ) {
-      current_color <- col.species
-    } else {
-      current_color <- place_colors
-    }
-    
-    graphics::rect(
-      (0:(nrow(table_ordered) - 1)) *
-        dimx,
-      (i - 1) *
-        dimy,
-      (1:nrow(table_ordered)) *
-        dimx -
-        dimx *
-        0.1,
-      (i - 1) *
-        dimy +
-        (
-          table_ordered[, i] /
-            maximum_value
-        ) *
-        dimy *
-        0.8,
-      col = current_color,
-      lty = lty,
-      lwd = lwd,
-      border = border
-    )
-    
-    graphics::lines(
-      c(
-        -1,
-        x
-      ),
-      c(
-        (i - 1) * dimy,
-        (i - 1) * dimy
-      ),
-      lty = lty.lines,
-      lwd = lwd
-    )
-  }
-  
-  species_label_x <- x + 1.2
-  
-  species_label_y <- (
-    seq_len(
-      ncol(table_ordered)
-    ) -
-      0.5
-  ) *
-    dimy
-  
-  graphics::text(
-    x = rep(
-      species_label_x,
-      ncol(table_ordered)
-    ),
-    y = species_label_y,
-    labels = gsub(
-      "_",
-      " ",
-      colnames(table_ordered)
-    ),
-    cex = cex.species,
-    adj = 0,
-    font = 3,
-    xpd = NA
-  )
-  
-  if (lty.lines != 0) {
-    
-    graphics::rect(
-      -1,
-      0,
-      -1,
-      (
-        ncol(table_ordered) - 1
-      ) *
-        dimy +
-        dimy *
-        0.8,
-      lwd = lwd
-    )
-  }
-  
-  if (!is.null(show.grad)) {
-    
-    graphics::text(
-      x + 1,
-      133.5,
-      gradlab,
-      cex = cex.gradient,
-      adj = 0,
-      xpd = NA
-    )
-  }
-  
-  graphics::par(
-    mgp = c(
-      1,
-      4,
-      5
-    )
-  )
-  
-  graphics::title(
-    main = title,
-    cex.main = cex.title
-  )
-  
-  graphics::par(
-    mgp = c(
-      0,
-      4,
-      5
-    )
-  )
-  
-  graphics::title(
-    ylab = ylab,
-    cex.lab = cex.lab
-  )
-  
-  graphics::par(
-    mgp = c(
-      1,
-      6,
-      8
-    ),
-    mar = c(
-      3.1,
-      3,
-      0.7,
-      1.2
-    )
-  )
-  
-  graphics::title(
-    xlab = xlab,
-    cex.lab = cex.lab
-  )
-  
-  graphics::par(
-    mgp = c(
-      4,
-      8,
-      10
-    ),
-    mar = c(
-      0,
-      0,
-      0,
-      0
-    )
-  )
-  
-  if (!is.null(show.grad)) {
-    
-    gradient <- sort(
-      gradient,
-      decreasing = decrease
-    )
-    
-    gradient_range <- abs(
-      max(
-        c(
-          gradient,
-          0
-        )
-      ) -
-        min(
-          c(
-            gradient,
-            0
-          )
-        )
-    )
-    
-    if (gradient_range == 0) {
-      gradient_range <- 1
-    }
-    
-    gradient_scaled <- gradient /
-      gradient_range
-    
-    gradient_base <- 126 -
-      min(
-        c(
-          gradient_scaled * 15,
-          0
-        )
-      )
-    
-    graphics::rect(
-      (0:(nrow(table_ordered) - 1)) *
-        dimx,
-      gradient_base,
-      (1:nrow(table_ordered)) *
-        dimx -
-        dimx *
-        0.1,
-      gradient_base +
-        gradient_scaled *
-        15,
-      lwd = lwd,
-      col = col.gradient
-    )
-    
-    graphics::rect(
-      x + 0.1,
-      126,
-      x + 0.1,
-      141,
-      lwd = lwd
-    )
-    
-    graphics::rect(
-      x + 0.1,
-      126,
-      x + 0.9,
-      126,
-      lwd = lwd
-    )
-    
-    graphics::rect(
-      x + 0.1,
-      141,
-      x + 0.9,
-      141,
-      lwd = lwd
-    )
-    
-    graphics::text(
-      x + 1.2,
-      126,
-      round(
-        min(
-          c(
-            0,
-            gradient
-          )
-        ),
-        2
-      ),
-      adj = 0,
-      cex = 0.7,
-      xpd = NA
-    )
-    
-    graphics::text(
-      x + 1.2,
-      141,
-      round(
-        max(
-          c(
-            0,
-            gradient
-          )
-        ),
-        2
-      ),
-      adj = 0,
-      cex = 0.7,
-      xpd = NA
-    )
-  }
-  
-  graphics::par(
-    mar = c(
-      5,
-      4,
-      4,
-      2
-    ) + 0.1,
-    mgp = c(
-      0,
-      -0.5,
-      0
-    )
-  )
-  
-  if (!is.null(show.places)) {
-    
-    graphics::axis(
-      1,
-      at = (
-        (
-          0:(nrow(table_ordered) - 1)
-        ) *
-          dimx +
-          (
-            1:nrow(table_ordered)
-          ) *
-          dimx -
-          dimx *
-          0.1
-      ) /
-        2,
-      labels = rownames(
-        table_ordered
-      ),
-      las = 2,
-      cex.axis = cex.species,
-      tick = FALSE
-    )
-  }
-  
-  graphics::par(
-    mar = c(
-      5,
-      4,
-      4,
-      2
-    ) + 0.1,
-    mgp = c(
-      3,
-      1,
-      0
-    )
-  )
-  
-  if (!is.null(file)) {
-    
-    grDevices::dev.off()
-    
-    return(
-      paste(
-        "Image saved as",
-        file
-      )
-    )
-  }
-  
-  invisible(
-    table_ordered
+standardize_landscape <- function(x) {
+  normalized_value <- normalize_text(x)
+  dplyr::case_when(
+    stringr::str_detect(normalized_value, "pant") ~ "Pantanal",
+    stringr::str_detect(normalized_value, "cerr|bodoq|sdf") ~ "Cerrado",
+    stringr::str_detect(normalized_value, "flood|varzea|ivinhema|pevri|rf") ~ "Floodplain",
+    TRUE ~ NA_character_
   )
 }
 
-
-# ----------------------------------------------------------
-# Image functions
-# ----------------------------------------------------------
-
-list_available_images <- function(
-    image_directory
-) {
-  
-  image_files <- list.files(
-    path = image_directory,
-    pattern = "\\.(png|jpg|jpeg)$",
-    full.names = TRUE,
-    recursive = TRUE,
-    ignore.case = TRUE
+pick_font_family <- function(candidates) {
+  installed <- tryCatch(
+    unique(systemfonts::system_fonts()[["family"]]),
+    error = function(e) character(0)
   )
-  
-  image_files[
-    file.exists(image_files)
-  ]
+  found <- candidates[candidates %in% installed]
+  if (length(found) > 0) found[1] else "sans"
 }
 
+mm_to_linewidth <- function(mm) mm / (ggplot2::.pt * 25.4 / 96)
+pt_to_size <- function(pt) pt / ggplot2::.pt
 
-find_landscape_image <- function(
-    image_files,
-    landscape_name
-) {
-  
-  if (length(image_files) == 0) {
-    
-    return(
-      NA_character_
-    )
+darken_color <- function(color, factor = 0.68) {
+  rgb_values <- grDevices::col2rgb(color) / 255
+  grDevices::rgb(t(rgb_values * factor))
+}
+
+is_upright_token <- function(token) {
+  clean_tok <- tolower(gsub("\\.", "", token))
+  qualifiers <- c("sp", "spp", "cf", "aff", "nr", "gr", "var", "ssp", "subsp", "morpho")
+  is_num <- !is.na(suppressWarnings(as.numeric(token)))
+  is_code <- nchar(token) <= 3 && grepl("^[A-Z]", token) && grepl("[0-9]", token)
+  (clean_tok %in% qualifiers) || is_num || is_code
+}
+
+format_taxon_label <- function(taxa) {
+  quote_token <- function(token) {
+    token <- gsub("\\\\", "\\\\\\\\", token)
+    token <- gsub("\"", "\\\\\"", token)
+    paste0("\"", token, "\"")
   }
-  
-  normalized_names <- vapply(
-    image_files,
-    normalize_file_name,
-    character(1)
-  )
-  
-  aliases <- switch(
-    landscape_name,
-    
-    "pantanal" = c(
-      "pantanal",
-      "baia negra",
-      "baianegra",
-      "apa baia negra"
-    ),
-    
-    "cerrado" = c(
-      "cerrado",
-      "bodoquena",
-      "serra da bodoquena"
-    ),
-    
-    "floodplain" = c(
-      "floodplain",
-      "varzea",
-      "varzeas",
-      "ivinhema",
-      "pevri",
-      "rio ivinhema"
-    )
-  )
-  
-  aliases <- normalize_directory_name(
-    aliases
-  )
-  
-  image_scores <- vapply(
-    normalized_names,
-    function(image_name) {
-      
-      alias_scores <- vapply(
-        aliases,
-        function(alias) {
-          
-          if (identical(
-            image_name,
-            alias
-          )) {
-            
-            return(
-              1000 + nchar(alias)
-            )
+  vapply(
+    taxa,
+    function(taxon) {
+      tokens <- strsplit(stringr::str_squish(taxon), " ", fixed = TRUE)[[1]]
+      pieces <- vapply(
+        tokens,
+        function(token) {
+          if (startsWith(token, "(") && endsWith(token, ")")) {
+            inner <- substr(token, 2, nchar(token) - 1)
+            paste0("\"(\"*italic(", quote_token(inner), ")*\")\"")
+          } else if (is_upright_token(token)) {
+            quote_token(token)
+          } else {
+            paste0("italic(", quote_token(token), ")")
           }
-          
-          if (
-            grepl(
-              alias,
-              image_name,
-              fixed = TRUE
-            )
-          ) {
-            
-            return(
-              nchar(alias)
-            )
-          }
-          
-          0
         },
-        numeric(1)
+        character(1)
       )
-      
-      max(alias_scores)
+      paste(pieces, collapse = "~")
     },
-    numeric(1)
-  )
-  
-  if (
-    length(image_scores) == 0 ||
-    max(image_scores) == 0
-  ) {
-    
-    return(
-      NA_character_
-    )
-  }
-  
-  selected_file <- image_files[
-    which.max(image_scores)
-  ]
-  
-  normalizePath(
-    selected_file,
-    winslash = "/",
-    mustWork = TRUE
+    character(1),
+    USE.NAMES = FALSE
   )
 }
 
-
-read_landscape_image <- function(
-    file_path
-) {
-  
-  if (
-    is.na(file_path) ||
-    !file.exists(file_path)
-  ) {
-    
-    return(
-      NULL
-    )
+clean_landscape_image <- function(img) {
+  if (is.null(img)) return(NULL)
+  dims <- dim(img)
+  if (length(dims) < 2) return(img)
+  h <- dims[1]
+  w <- dims[2]
+  r1 <- max(1, floor(h * 0.015))
+  r2 <- min(h, ceiling(h * 0.985))
+  c1 <- max(1, floor(w * 0.015))
+  c2 <- min(w, floor(w * 0.968))
+  if (length(dims) == 3) {
+    img[r1:r2, c1:c2, , drop = FALSE]
+  } else {
+    img[r1:r2, c1:c2, drop = FALSE]
   }
-  
-  extension <- tolower(
-    tools::file_ext(file_path)
-  )
-  
-  tryCatch(
+}
+
+safe_read_image <- function(image_path) {
+  if (is.na(image_path) || !file.exists(image_path)) return(NULL)
+  extension <- tolower(tools::file_ext(image_path))
+  raw_img <- tryCatch(
     {
       if (extension == "png") {
-        
-        png::readPNG(
-          file_path
-        )
-        
-      } else if (
-        extension %in% c(
-          "jpg",
-          "jpeg"
-        )
-      ) {
-        
-        jpeg::readJPEG(
-          file_path
-        )
-        
+        png::readPNG(image_path)
+      } else if (extension %in% c("jpg", "jpeg")) {
+        jpeg::readJPEG(image_path)
+      } else if (extension %in% c("tif", "tiff")) {
+        tiff::readTIFF(image_path)
       } else {
-        
         NULL
       }
     },
-    error = function(e) {
-      
-      stop(
-        "The image could not be read: ",
-        basename(file_path),
-        ". Original error: ",
-        conditionMessage(e)
-      )
-    }
+    error = function(e) NULL
   )
+  clean_landscape_image(raw_img)
 }
 
-
-plot_photo_panel <- function(
-    image,
-    border_color = "black"
-) {
-  
-  graphics::par(
-    mar = c(
-      0.0001,
-      0.0001,
-      0.0001,
-      0.0001
-    )
+find_landscape_image <- function(image_files, landscape_key) {
+  if (length(image_files) == 0) return(NA_character_)
+  aliases <- switch(
+    landscape_key,
+    "Pantanal" = c("pantanal", "baia negra", "baianegra", "apa baia negra"),
+    "Cerrado" = c("cerrado", "bodoquena", "serra da bodoquena"),
+    "Floodplain" = c("floodplain", "varzea", "varzeas", "ivinhema", "pevri", "rio ivinhema")
   )
-  
-  graphics::plot.new()
-  
-  graphics::plot.window(
-    xlim = c(
-      0,
-      1
-    ),
-    ylim = c(
-      0,
-      1
-    ),
-    asp = 1
+  normalized_names <- vapply(image_files, normalize_file_name, character(1))
+  scores <- vapply(
+    normalized_names,
+    function(nm) {
+      max(vapply(aliases, function(al) {
+        if (identical(nm, al)) return(1000 + nchar(al))
+        if (grepl(al, nm, fixed = TRUE)) return(nchar(al))
+        0
+      }, numeric(1)))
+    },
+    numeric(1)
   )
-  
-  graphics::rasterImage(
-    image,
-    0.001,
-    0.001,
-    0.999,
-    0.999
-  )
-  
-  graphics::rect(
-    0.001,
-    0.001,
-    0.999,
-    0.999,
-    border = border_color,
-    lwd = 2
-  )
+  if (max(scores) == 0) return(NA_character_)
+  normalizePath(image_files[which.max(scores)], winslash = "/", mustWork = TRUE)
 }
 
-
-# ----------------------------------------------------------
-# Read and prepare data
-# ----------------------------------------------------------
+font_family <- pick_font_family(font_candidates)
 
 raw_data <- readr::read_delim(
   file = file_csv,
   delim = ";",
-  locale = readr::locale(
-    encoding = "UTF-8"
-  ),
+  locale = readr::locale(encoding = "UTF-8"),
   show_col_types = FALSE,
   trim_ws = TRUE
-) |>
-  janitor::clean_names()
+) |> janitor::clean_names()
 
-
-cat(
-  "Detected columns:\n"
-)
-
-print(
-  names(raw_data)
-)
-
-
-required_columns <- c(
-  "species",
-  "trap",
-  "collection",
-  "landscape",
-  "lati_s",
-  "long_w",
-  "baits",
-  "date"
-)
-
-missing_columns <- setdiff(
-  required_columns,
-  names(raw_data)
-)
-
-if (length(missing_columns) > 0) {
-  
-  stop(
-    "The following columns were not found in the dataset: ",
-    paste(
-      missing_columns,
-      collapse = ", "
-    ),
-    "."
-  )
-}
-
-
-data_clean <- raw_data |>
+occurrence_data <- raw_data |>
   dplyr::mutate(
-    dplyr::across(
-      dplyr::where(is.character),
-      clean_text
+    species = stringr::str_squish(as.character(species)),
+    trap = normalize_text(trap),
+    collection = normalize_text(collection),
+    landscape_values = if (!is.na(pick_column(raw_data, c("landscape", "landscape_class", "paisagem")))) as.character(raw_data[[pick_column(raw_data, c("landscape", "landscape_class", "paisagem"))]]) else "",
+    point = trimws(if (!is.na(pick_column(raw_data, c("point", "ponto", "local", "localidade", "area")))) as.character(raw_data[[pick_column(raw_data, c("point", "ponto", "local", "localidade", "area"))]]) else ""),
+    point_key = normalize_text(point),
+    landscape = dplyr::case_when(
+      !is.na(landscape_values) & trimws(landscape_values) != "" ~ standardize_landscape(landscape_values),
+      stringr::str_detect(point_key, "baia negra|baia_negra|baianegra") ~ "Pantanal",
+      stringr::str_detect(point_key, "bodoquena") ~ "Cerrado",
+      stringr::str_detect(point_key, "pevri|ivinhema|varzea") ~ "Floodplain",
+      TRUE ~ NA_character_
     ),
-    species = clean_text(
-      species
-    ),
-    trap = normalize_text(
-      trap
-    ),
-    collection = normalize_text(
-      collection
-    ),
-    landscape = normalize_text(
-      landscape
-    )
-  )
-
-
-suspension_data <- data_clean |>
+    sampling_unit = paste(landscape, as.character(lati_s), as.character(long_w), sep = "_")
+  ) |>
   dplyr::filter(
     !is.na(species),
     species != "",
     trap == "suspension",
     collection == "passive",
-    landscape %in% c(
-      "pantanal",
-      "cerrado",
-      "floodplain"
-    )
-  )
+    landscape %in% landscape_order
+  ) |>
+  dplyr::distinct(landscape, sampling_unit, date, lati_s, long_w, baits, species)
 
+wide_df <- occurrence_data |>
+  dplyr::count(landscape, sampling_unit, species, name = "n_records") |>
+  tidyr::pivot_wider(names_from = species, values_from = n_records, values_fill = 0) |>
+  dplyr::mutate(landscape = factor(landscape, levels = landscape_order)) |>
+  dplyr::arrange(landscape, sampling_unit)
 
-if (nrow(suspension_data) == 0) {
-  
-  stop(
-    "No records remained after filtering for suspension traps, ",
-    "passive collection and the three landscapes."
-  )
+species_matrix <- as.matrix(
+  wide_df[, setdiff(names(wide_df), c("landscape", "sampling_unit")), drop = FALSE]
+)
+presence_matrix <- ifelse(species_matrix > 0, 1, 0)
+keep_units <- rowSums(presence_matrix) > 0
+keep_species <- colSums(presence_matrix) > 0
+
+presence_matrix <- presence_matrix[keep_units, keep_species, drop = FALSE]
+unit_landscape <- wide_df[["landscape"]][keep_units]
+relative_occurrence <- vegan::decostand(presence_matrix, method = "total")
+
+set.seed(123)
+jaccard_dist <- vegan::vegdist(presence_matrix, method = "jaccard", binary = TRUE)
+permanova_res <- vegan::adonis2(jaccard_dist ~ unit_landscape, permutations = 9999)
+permdisp_res <- vegan::permutest(vegan::betadisper(jaccard_dist, unit_landscape), permutations = 9999)
+
+permanova_r2 <- permanova_res[["R2"]][1]
+permanova_f <- permanova_res[["F"]][1]
+permanova_p <- permanova_res[["Pr(>F)"]][1]
+permdisp_f <- permdisp_res[["tab"]][["F"]][1]
+permdisp_p <- permdisp_res[["tab"]][["Pr(>F)"]][1]
+
+unit_gradient <- as.numeric(unit_landscape)
+unit_order <- order(unit_gradient, -rowSums(presence_matrix))
+relative_ordered <- relative_occurrence[unit_order, , drop = FALSE]
+presence_ordered <- presence_matrix[unit_order, , drop = FALSE]
+landscape_ordered <- unit_landscape[unit_order]
+
+species_barycentre <- colSums(relative_ordered * as.numeric(landscape_ordered)) /
+  colSums(relative_ordered)
+species_units <- colSums(presence_ordered)
+species_order <- order(species_barycentre, species_units, colnames(relative_ordered))
+
+relative_ordered <- relative_ordered[, species_order, drop = FALSE]
+presence_ordered <- presence_ordered[, species_order, drop = FALSE]
+
+n_units <- nrow(relative_ordered)
+n_species <- ncol(relative_ordered)
+max_rel <- max(relative_ordered, na.rm = TRUE)
+
+all_img_candidates <- list.files(
+  path = image_directory,
+  full.names = TRUE,
+  recursive = TRUE
+)
+available_images <- all_img_candidates[
+  file.exists(all_img_candidates) &
+    tolower(tools::file_ext(all_img_candidates)) %in% c("png", "jpg", "jpeg", "tif", "tiff")
+]
+if (length(available_images) > 0) {
+  available_images <- available_images[!is_inside_directory(available_images, output_directory)]
 }
 
+landscape_images <- lapply(
+  landscape_order,
+  function(k) safe_read_image(find_landscape_image(available_images, k))
+)
+names(landscape_images) <- landscape_order
 
-cat(
-  "\nRecords after the suspension-trap filter:\n"
+photo_heights <- vapply(
+  landscape_images,
+  function(img) {
+    if (is.null(img)) return(photo_width_mm * 0.92)
+    photo_width_mm * dim(img)[1] / dim(img)[2]
+  },
+  numeric(1)
 )
 
-print(
-  nrow(suspension_data)
+photo_column_height <- sum(photo_heights + photo_label_mm) +
+  photo_gap_mm * (length(landscape_order) - 1)
+body_height <- max(148, photo_column_height)
+
+figure_height_mm <- 2 * margin_mm + header_mm + body_height + footer_mm
+body_top <- figure_height_mm - margin_mm - header_mm
+body_bottom <- body_top - body_height
+
+poncho_xmin <- margin_mm + 6.5
+poncho_xmax <- 78.5
+poncho_width <- poncho_xmax - poncho_xmin
+dx <- poncho_width / n_units
+dy <- body_height / n_species
+
+species_label_x <- poncho_xmax + 1.8
+u_col_x <- 129.2
+photo_xmin <- figure_width_mm - margin_mm - photo_width_mm
+photo_xmax <- figure_width_mm - margin_mm
+
+species_df <- tibble::tibble(
+  species_index = seq_len(n_species),
+  species = colnames(relative_ordered),
+  label = format_taxon_label(colnames(relative_ordered)),
+  n_occupied_units = as.integer(colSums(presence_ordered)),
+  barycentre = as.numeric(species_barycentre[species_order]),
+  row_bottom = body_bottom + (seq_len(n_species) - 1) * dy,
+  row_top = body_bottom + seq_len(n_species) * dy,
+  y_mid = body_bottom + (seq_len(n_species) - 0.5) * dy
 )
 
+bars_list <- vector("list", n_species)
+for (i in seq_len(n_species)) {
+  vals <- relative_ordered[, i]
+  bars_list[[i]] <- tibble::tibble(
+    unit_index = seq_len(n_units),
+    species_index = i,
+    landscape = as.character(landscape_ordered),
+    rel_val = vals,
+    xmin = poncho_xmin + (seq_len(n_units) - 1) * dx + dx * 0.06,
+    xmax = poncho_xmin + seq_len(n_units) * dx - dx * 0.06,
+    ymin = species_df[["row_bottom"]][i],
+    ymax = species_df[["row_bottom"]][i] + (vals / max_rel) * dy * 0.84,
+    fill = unname(landscape_colors[as.character(landscape_ordered)]),
+    outline = darken_color(unname(landscape_colors[as.character(landscape_ordered)]), 0.45)
+  ) |> dplyr::filter(rel_val > 0)
+}
+bars_df <- dplyr::bind_rows(bars_list)
 
-cat(
-  "\nRecords by landscape:\n"
-)
-
-print(
-  table(
-    suspension_data$landscape
-  )
-)
-
-
-cat(
-  "\nSpecies by landscape:\n"
-)
-
-print(
-  suspension_data |>
-    dplyr::distinct(
-      landscape,
-      species
-    ) |>
-    dplyr::count(
-      landscape,
-      name = "n_species"
-    )
-)
-
-
-occurrence_data <- suspension_data |>
-  dplyr::mutate(
-    lati_s = as.character(
-      lati_s
-    ),
-    long_w = as.character(
-      long_w
-    ),
-    baits = as.character(
-      baits
-    ),
-    date = as.character(
-      date
-    ),
-    sampling_unit = paste(
-      landscape,
-      lati_s,
-      long_w,
-      sep = "_"
-    )
-  ) |>
-  dplyr::distinct(
-    landscape,
-    sampling_unit,
-    date,
-    lati_s,
-    long_w,
-    baits,
-    species
-  )
-
-
-species_wide_landscape <- occurrence_data |>
-  dplyr::group_by(
-    landscape,
-    sampling_unit,
-    species
-  ) |>
+landscape_unit_table <- tibble::tibble(
+  unit_index = seq_len(n_units),
+  landscape = factor(as.character(landscape_ordered), levels = landscape_order)
+) |>
+  dplyr::group_by(landscape) |>
   dplyr::summarise(
-    count = dplyr::n(),
+    u_start = min(unit_index),
+    u_end = max(unit_index),
+    n_units_land = dplyr::n(),
     .groups = "drop"
   ) |>
-  tidyr::pivot_wider(
-    names_from = species,
-    values_from = count,
-    values_fill = 0
-  )
-
-
-landscape_order <- c(
-  "pantanal",
-  "cerrado",
-  "floodplain"
-)
-
-
-landscape_labels <- c(
-  "pantanal" = "Pantanal",
-  "cerrado" = "Cerrado",
-  "floodplain" = "Floodplain"
-)
-
-
-landscape_colors <- c(
-  "pantanal" = "#4E9B73",
-  "cerrado" = "#C89A42",
-  "floodplain" = "#6CA0E8"
-)
-
-
-species_wide_landscape <- species_wide_landscape |>
   dplyr::mutate(
-    landscape = factor(
-      landscape,
-      levels = landscape_order
-    )
-  ) |>
-  dplyr::arrange(
-    landscape,
-    sampling_unit
-  )
-
-
-variables_landscape <- species_wide_landscape |>
-  dplyr::select(
-    landscape,
-    sampling_unit
-  )
-
-
-species_abundance <- species_wide_landscape |>
-  dplyr::select(
-    -landscape,
-    -sampling_unit
-  ) |>
-  as.data.frame(
-    check.names = FALSE
-  )
-
-
-species_occurrence <- ifelse(
-  species_abundance > 0,
-  1,
-  0
-)
-
-
-species_occurrence <- as.data.frame(
-  species_occurrence,
-  check.names = FALSE
-)
-
-
-keep_rows <- rowSums(
-  species_occurrence
-) > 0
-
-
-species_occurrence <- species_occurrence[
-  keep_rows,
-  ,
-  drop = FALSE
-]
-
-
-variables_landscape <- variables_landscape[
-  keep_rows,
-  ,
-  drop = FALSE
-]
-
-
-keep_columns <- colSums(
-  species_occurrence
-) > 0
-
-
-species_occurrence <- species_occurrence[
-  ,
-  keep_columns,
-  drop = FALSE
-]
-
-
-if (nrow(species_occurrence) == 0) {
-  
-  stop(
-    "No sampling units remained in the occurrence matrix."
-  )
-}
-
-
-if (ncol(species_occurrence) == 0) {
-  
-  stop(
-    "No species remained in the occurrence matrix."
-  )
-}
-
-
-rownames(species_occurrence) <- seq_len(
-  nrow(species_occurrence)
-)
-
-
-gradient_landscape <- as.numeric(
-  variables_landscape$landscape
-)
-
-
-colors_by_unit <- unname(
-  landscape_colors[
-    as.character(
-      variables_landscape$landscape
-    )
-  ]
-)
-
-
-species_relative_occurrence <- vegan::decostand(
-  as.matrix(
-    species_occurrence
-  ),
-  method = "total"
-)
-
-
-cat(
-  "\nFinal matrix dimensions:\n"
-)
-
-cat(
-  nrow(species_relative_occurrence),
-  "sampling units x",
-  ncol(species_relative_occurrence),
-  "species\n\n"
-)
-
-
-# ----------------------------------------------------------
-# Locate and read landscape images
-# ----------------------------------------------------------
-
-available_images <- list_available_images(
-  image_directory
-)
-
-
-cat(
-  "Images found inside the correct image directory:\n"
-)
-
-if (length(available_images) > 0) {
-  
-  cat(
-    paste0(
-      "- ",
-      basename(available_images),
-      collapse = "\n"
+    n_species_land = vapply(
+      as.character(landscape),
+      function(k) sum(colSums(presence_ordered[as.character(landscape_ordered) == k, , drop = FALSE]) > 0),
+      integer(1)
     ),
-    "\n\n"
+    xmin = poncho_xmin + (u_start - 1) * dx,
+    xmax = poncho_xmin + u_end * dx,
+    xmid = (xmin + xmax) / 2,
+    seg_xmin = xmin + dx * 0.08,
+    seg_xmax = xmax - dx * 0.08,
+    color = unname(landscape_colors[as.character(landscape)]),
+    title = unname(landscape_titles[as.character(landscape)]),
+    photo_height = unname(photo_heights[as.character(landscape)]),
+    totals = sprintf("%d sampling units · %d species", n_units_land, n_species_land)
   )
-  
-} else {
-  
-  cat(
-    "No PNG, JPG or JPEG images were found.\n\n"
-  )
+
+photo_cursor <- body_top
+landscape_unit_table[["photo_ymax"]] <- NA_real_
+landscape_unit_table[["photo_ymin"]] <- NA_real_
+for (k in seq_len(nrow(landscape_unit_table))) {
+  photo_cursor <- photo_cursor - photo_label_mm
+  landscape_unit_table[["photo_ymax"]][k] <- photo_cursor
+  photo_cursor <- photo_cursor - landscape_unit_table[["photo_height"]][k]
+  landscape_unit_table[["photo_ymin"]][k] <- photo_cursor
+  photo_cursor <- photo_cursor - photo_gap_mm
 }
 
+header_y <- body_top + 2.6
+rule_y <- body_top + 1.0
 
-pantanal_image_file <- find_landscape_image(
-  available_images,
-  "pantanal"
-)
+poncho_plot <- ggplot2::ggplot() +
+  ggplot2::geom_rect(
+    data = landscape_unit_table,
+    ggplot2::aes(xmin = xmin, xmax = xmax, ymin = body_bottom, ymax = body_top),
+    fill = landscape_unit_table[["color"]],
+    alpha = band_tint_alpha,
+    color = NA
+  ) +
+  ggplot2::geom_segment(
+    data = species_df,
+    ggplot2::aes(x = poncho_xmin - 0.5, xend = poncho_xmax, y = row_bottom, yend = row_bottom),
+    color = "grey35",
+    linewidth = mm_to_linewidth(0.20)
+  ) +
+  ggplot2::annotate(
+    "segment",
+    x = poncho_xmin - 0.5,
+    xend = poncho_xmin - 0.5,
+    y = body_bottom,
+    yend = body_top,
+    color = "grey20",
+    linewidth = mm_to_linewidth(0.30)
+  ) +
+  ggplot2::geom_rect(
+    data = bars_df,
+    ggplot2::aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+    fill = bars_df[["fill"]],
+    color = "grey15",
+    linewidth = mm_to_linewidth(bar_outline_mm)
+  ) +
+  ggplot2::geom_segment(
+    data = landscape_unit_table,
+    ggplot2::aes(x = seg_xmin, xend = seg_xmax, y = body_top + 1.4, yend = body_top + 1.4),
+    color = landscape_unit_table[["color"]],
+    linewidth = mm_to_linewidth(1.65),
+    lineend = "butt"
+  ) +
+  ggplot2::geom_text(
+    data = landscape_unit_table,
+    ggplot2::aes(x = xmid, y = body_top + 3.2, label = title),
+    color = landscape_unit_table[["color"]],
+    fontface = "bold",
+    vjust = 0,
+    size = pt_to_size(landscape_text_pt),
+    family = font_family
+  ) +
+  ggplot2::annotate(
+    "segment",
+    x = species_label_x,
+    xend = u_col_x + 1.0,
+    y = rule_y,
+    yend = rule_y,
+    color = "grey30",
+    linewidth = mm_to_linewidth(0.25)
+  ) +
+  ggplot2::annotate(
+    "text",
+    x = c(species_label_x, u_col_x, photo_xmin),
+    y = header_y,
+    label = c("Species", "U", "Representative landscapes"),
+    hjust = c(0, 1, 0),
+    vjust = 0,
+    fontface = "bold",
+    size = pt_to_size(header_text_pt),
+    family = font_family,
+    color = "black"
+  ) +
+  ggplot2::geom_text(
+    data = species_df,
+    ggplot2::aes(x = species_label_x, y = y_mid, label = label),
+    parse = TRUE,
+    hjust = 0,
+    vjust = 0.5,
+    size = pt_to_size(species_text_pt),
+    family = font_family,
+    color = "black"
+  ) +
+  ggplot2::geom_text(
+    data = species_df,
+    ggplot2::aes(x = u_col_x, y = y_mid, label = n_occupied_units),
+    hjust = 1,
+    vjust = 0.5,
+    size = pt_to_size(small_text_pt),
+    family = font_family,
+    color = "grey20"
+  ) +
+  ggplot2::annotate(
+    "text",
+    x = margin_mm + 1.8,
+    y = (body_bottom + body_top) / 2,
+    label = "Relative occurrence",
+    angle = 90,
+    fontface = "bold",
+    size = pt_to_size(axis_title_pt),
+    family = font_family,
+    color = "black"
+  ) +
+  ggplot2::annotate(
+    "text",
+    x = (poncho_xmin + poncho_xmax) / 2,
+    y = body_bottom - 4.3,
+    label = sprintf("Ordered sampling units (n = %d)", n_units),
+    fontface = "bold",
+    size = pt_to_size(axis_title_pt),
+    family = font_family,
+    color = "black"
+  )
 
-
-cerrado_image_file <- find_landscape_image(
-  available_images,
-  "cerrado"
-)
-
-
-floodplain_image_file <- find_landscape_image(
-  available_images,
-  "floodplain"
-)
-
-
-cat(
-  "Images selected for the figure:\n"
-)
-
-cat(
-  "Pantanal: ",
-  ifelse(
-    is.na(pantanal_image_file),
-    "not found",
-    pantanal_image_file
-  ),
-  "\n",
-  sep = ""
-)
-
-cat(
-  "Cerrado: ",
-  ifelse(
-    is.na(cerrado_image_file),
-    "not found",
-    cerrado_image_file
-  ),
-  "\n",
-  sep = ""
-)
-
-cat(
-  "Floodplain: ",
-  ifelse(
-    is.na(floodplain_image_file),
-    "not found",
-    floodplain_image_file
-  ),
-  "\n\n",
-  sep = ""
-)
-
-
-missing_images <- c(
-  Pantanal = pantanal_image_file,
-  Cerrado = cerrado_image_file,
-  Floodplain = floodplain_image_file
-)
-
-missing_images <- names(
-  missing_images
-)[
-  is.na(missing_images)
-]
-
-
-if (length(missing_images) > 0) {
+for (k in seq_len(nrow(landscape_unit_table))) {
+  land_key <- as.character(landscape_unit_table[["landscape"]][k])
+  img <- landscape_images[[land_key]]
+  ymin_k <- landscape_unit_table[["photo_ymin"]][k]
+  ymax_k <- landscape_unit_table[["photo_ymax"]][k]
   
-  stop(
-    "The following landscape images could not be identified by filename: ",
-    paste(
-      missing_images,
-      collapse = ", "
-    ),
-    ". Files present in the correct image directory: ",
-    if (
-      length(available_images) == 0
-    ) {
-      "none"
-    } else {
-      paste(
-        basename(available_images),
-        collapse = ", "
+  if (!is.null(img)) {
+    poncho_plot <- poncho_plot +
+      ggplot2::annotation_custom(
+        grid::rasterGrob(
+          img,
+          width = grid::unit(1, "npc"),
+          height = grid::unit(1, "npc"),
+          interpolate = TRUE
+        ),
+        xmin = photo_xmin,
+        xmax = photo_xmax,
+        ymin = ymin_k,
+        ymax = ymax_k
       )
-    },
-    ". Rename the images using Pantanal, Cerrado and Floodplain ",
-    "in their filenames."
-  )
-}
-
-
-pantanal_image <- read_landscape_image(
-  pantanal_image_file
-)
-
-
-cerrado_image <- read_landscape_image(
-  cerrado_image_file
-)
-
-
-floodplain_image <- read_landscape_image(
-  floodplain_image_file
-)
-
-
-# ----------------------------------------------------------
-# Draw complete figure
-# ----------------------------------------------------------
-
-draw_full_figure <- function() {
-  
-  graphics::layout(
-    matrix(
-      c(
-        1, 2,
-        1, 3,
-        1, 4
-      ),
-      ncol = 2,
-      byrow = TRUE
-    ),
-    widths = c(
-      1.58,
-      2.42
-    ),
-    heights = c(
-      1,
-      1,
-      1
-    )
-  )
-  
-  poncho(
-    table = species_relative_occurrence,
-    gradient = gradient_landscape,
-    show.grad = NULL,
-    highlight.places = rownames(
-      species_relative_occurrence
-    ),
-    col.places = colors_by_unit,
-    cex.species = 0.74,
-    xfactor = 0,
-    xlab = "Sampling units",
-    ylab = "Relative occurrence",
-    cex.lab = 1.15,
-    lwd = 0.8,
-    border = "black"
-  )
-  
-  units_by_landscape <- table(
-    factor(
-      variables_landscape$landscape,
-      levels = landscape_order
-    )
-  )
-  
-  total_units <- sum(
-    units_by_landscape
-  )
-  
-  unit_width <- 84 /
-    total_units
-  
-  start_x <- 0
-  
-  for (landscape_name in landscape_order) {
-    
-    number_of_units <- as.numeric(
-      units_by_landscape[
-        landscape_name
-      ]
-    )
-    
-    if (number_of_units > 0) {
-      
-      end_x <- start_x +
-        number_of_units *
-        unit_width -
-        unit_width *
-        0.1
-      
-      middle_x <- (
-        start_x +
-          end_x
-      ) /
-        2
-      
-      graphics::segments(
-        start_x,
-        120,
-        end_x,
-        120,
-        xpd = TRUE,
-        col = landscape_colors[
-          landscape_name
-        ],
-        lwd = 3
+  } else {
+    poncho_plot <- poncho_plot +
+      ggplot2::annotate(
+        "rect",
+        xmin = photo_xmin,
+        xmax = photo_xmax,
+        ymin = ymin_k,
+        ymax = ymax_k,
+        fill = "grey95",
+        color = NA
       )
-      
-      graphics::text(
-        middle_x,
-        122.5,
-        landscape_labels[
-          landscape_name
-        ],
-        cex = 0.95,
-        xpd = TRUE,
-        font = 2,
-        col = landscape_colors[
-          landscape_name
-        ]
-      )
-      
-      start_x <- start_x +
-        number_of_units *
-        unit_width
-    }
   }
   
-  plot_photo_panel(
-    pantanal_image,
-    border_color = landscape_colors[
-      "pantanal"
-    ]
-  )
+  label_expr <- paste0("bold(\"", landscape_unit_table[["title"]][k], "\")")
   
-  plot_photo_panel(
-    cerrado_image,
-    border_color = landscape_colors[
-      "cerrado"
-    ]
-  )
-  
-  plot_photo_panel(
-    floodplain_image,
-    border_color = landscape_colors[
-      "floodplain"
-    ]
-  )
+  poncho_plot <- poncho_plot +
+    ggplot2::annotate(
+      "rect",
+      xmin = photo_xmin,
+      xmax = photo_xmax,
+      ymin = ymin_k,
+      ymax = ymax_k,
+      fill = NA,
+      color = landscape_unit_table[["color"]][k],
+      linewidth = mm_to_linewidth(frame_line_mm),
+      linejoin = "mitre"
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = photo_xmin,
+      y = ymax_k + 4.1,
+      label = label_expr,
+      parse = TRUE,
+      hjust = 0,
+      vjust = 0,
+      size = pt_to_size(landscape_text_pt),
+      family = font_family,
+      color = "black"
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = photo_xmin,
+      y = ymax_k + 0.9,
+      label = landscape_unit_table[["totals"]][k],
+      hjust = 0,
+      vjust = 0,
+      size = pt_to_size(small_text_pt),
+      family = font_family,
+      color = "grey30"
+    )
 }
 
-
-# ----------------------------------------------------------
-# Display and save figure
-# ----------------------------------------------------------
-
-output_jpg <- file.path(
-  output_directory,
-  "fig_relative_occurrence_species_landscapes.jpg"
+footer_expression <- paste0(
+  "paste(\"PERMANOVA (Jaccard): \", italic(R)^2 == \"", sprintf("%.2f", permanova_r2),
+  "\", \", \", italic(F) == \"", sprintf("%.2f", permanova_f),
+  "\", \", \", italic(P) == \"", sprintf("%.4f", permanova_p),
+  "\", \";   PERMDISP: \", italic(F) == \"", sprintf("%.2f", permdisp_f),
+  "\", \", \", italic(P) == \"", sprintf("%.2f", permdisp_p), "\")"
 )
 
+poncho_plot <- poncho_plot +
+  ggplot2::annotate(
+    "text",
+    x = poncho_xmin,
+    y = margin_mm + 0.8,
+    label = footer_expression,
+    parse = TRUE,
+    hjust = 0,
+    vjust = 0,
+    size = pt_to_size(small_text_pt),
+    family = font_family,
+    color = "grey15"
+  ) +
+  ggplot2::coord_fixed(
+    ratio = 1,
+    xlim = c(0, figure_width_mm),
+    ylim = c(0, figure_height_mm),
+    expand = FALSE,
+    clip = "off"
+  ) +
+  ggplot2::theme_void(base_family = font_family) +
+  ggplot2::theme(
+    plot.background = ggplot2::element_rect(fill = background_color, color = NA),
+    panel.background = ggplot2::element_rect(fill = background_color, color = NA),
+    plot.margin = ggplot2::margin(0, 0, 0, 0),
+    legend.position = "none"
+  )
 
-output_tiff <- file.path(
-  output_directory,
-  "fig_relative_occurrence_species_landscapes.tiff"
-)
-
-
-output_pdf <- file.path(
-  output_directory,
-  "fig_relative_occurrence_species_landscapes.pdf"
-)
-
-
-if (interactive()) {
-  
-  draw_full_figure()
+if (preview_on_screen) {
+  grDevices::dev.new(
+    width = figure_width_mm / 25.4,
+    height = figure_height_mm / 25.4,
+    unit = "in",
+    noRStudioGD = TRUE
+  )
+  print(poncho_plot)
+  grDevices::dev.flush()
 }
 
+output_base <- file.path(output_directory, "fig_relative_occurrence_species_landscapes")
+output_png <- paste0(output_base, ".png")
+output_jpg <- paste0(output_base, ".jpg")
+output_tiff <- paste0(output_base, ".tiff")
+output_pdf <- paste0(output_base, ".pdf")
+output_csv <- paste0(output_base, "_summary.csv")
 
-message(
-  "Saving JPEG."
+ragg::agg_png(
+  filename = output_png,
+  width = figure_width_mm,
+  height = figure_height_mm,
+  units = "mm",
+  res = export_dpi,
+  background = background_color
 )
-
-
-grDevices::jpeg(
-  filename = output_jpg,
-  width = 22,
-  height = 15,
-  units = "cm",
-  res = 600,
-  quality = 100,
-  bg = "white"
-)
-
-
-tryCatch(
-  {
-    draw_full_figure()
-  },
-  finally = {
-    grDevices::dev.off()
-  }
-)
-
-
-message(
-  "Saving TIFF."
-)
-
-
-grDevices::tiff(
-  filename = output_tiff,
-  width = 22,
-  height = 15,
-  units = "cm",
-  res = 600,
-  compression = "lzw",
-  bg = "white"
-)
-
-
-tryCatch(
-  {
-    draw_full_figure()
-  },
-  finally = {
-    grDevices::dev.off()
-  }
-)
-
-
-message(
-  "Saving PDF."
-)
-
+tryCatch(print(poncho_plot), finally = grDevices::dev.off())
 
 if (capabilities("cairo")) {
-  
   grDevices::cairo_pdf(
     filename = output_pdf,
-    width = 8.66,
-    height = 5.90,
-    bg = "white"
+    width = figure_width_mm / 25.4,
+    height = figure_height_mm / 25.4,
+    bg = background_color,
+    family = font_family
   )
-  
 } else {
-  
   grDevices::pdf(
     file = output_pdf,
-    width = 8.66,
-    height = 5.90,
-    bg = "white",
+    width = figure_width_mm / 25.4,
+    height = figure_height_mm / 25.4,
+    bg = background_color,
     useDingbats = FALSE
   )
 }
+tryCatch(print(poncho_plot), finally = grDevices::dev.off())
 
-
-tryCatch(
-  {
-    draw_full_figure()
-  },
-  finally = {
-    grDevices::dev.off()
-  }
-)
-
-
-# ----------------------------------------------------------
-# Final summary
-# ----------------------------------------------------------
-
-cat(
-  "\nAnalysis completed.\n\n"
-)
-
-
-cat(
-  "Dataset:",
-  basename(file_csv),
-  "\n"
-)
-
-
-cat(
-  "Records after filtering:",
-  nrow(suspension_data),
-  "\n"
-)
-
-
-cat(
-  "Sampling units:",
-  nrow(species_relative_occurrence),
-  "\n"
-)
-
-
-cat(
-  "Species:",
-  ncol(species_relative_occurrence),
-  "\n\n"
-)
-
-
-cat(
-  "Pantanal image:\n",
-  pantanal_image_file,
-  "\n\n",
-  sep = ""
-)
-
-
-cat(
-  "Cerrado image:\n",
-  cerrado_image_file,
-  "\n\n",
-  sep = ""
-)
-
-
-cat(
-  "Floodplain image:\n",
-  floodplain_image_file,
-  "\n\n",
-  sep = ""
-)
-
-
-cat(
-  "JPEG saved at:\n",
-  normalizePath(
-    output_jpg,
-    winslash = "/",
-    mustWork = TRUE
-  ),
-  "\n\n",
-  sep = ""
-)
-
-
-cat(
-  "TIFF saved at:\n",
-  normalizePath(
-    output_tiff,
-    winslash = "/",
-    mustWork = TRUE
-  ),
-  "\n\n",
-  sep = ""
-)
-
-
-cat(
-  "PDF saved at:\n",
-  normalizePath(
-    output_pdf,
-    winslash = "/",
-    mustWork = TRUE
-  ),
-  "\n",
-  sep = ""
-)
+cat(sprintf("\nFigure size: %.0f x %.0f mm at %d dpi\n", figure_width_mm, figure_height_mm, export_dpi))
+cat(sprintf("Pontos amostrais analisados (n): %d\n", n_units))
+cat("Saved files in:\n", output_directory, "\n")

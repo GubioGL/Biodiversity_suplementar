@@ -1,5 +1,3 @@
-# Study-area location map
-
 map_author <- "Leite JMG"
 map_year <- "2026"
 sampling_period <- "2024–2025"
@@ -33,6 +31,7 @@ required_packages <- c(
   "elevatr",
   "ggnewscale",
   "cowplot",
+  "ragg",
   "rstudioapi"
 )
 
@@ -101,6 +100,11 @@ invisible(
 
 
 sf::sf_use_s2(FALSE)
+
+
+# Text is measured with the same engine used to save the PNG, so the
+# layout matches the saved file.
+cowplot::set_null_device("agg")
 
 
 get_candidate_directories <- function() {
@@ -323,7 +327,7 @@ locate_data_file <- function() {
   
   preferred_files <- csv_files[
     grepl(
-      "^dados.csv$",
+      "^dados_utf8(\\.csv)?\\.csv$",
       basename(csv_files),
       ignore.case = TRUE
     )
@@ -426,45 +430,6 @@ locate_data_file <- function() {
 }
 
 
-locate_script_directory <- function() {
-
-  candidate_directories <- get_candidate_directories()
-
-  script_directories <- candidate_directories[
-    vapply(
-      candidate_directories,
-      function(directory) {
-
-        dir.exists(
-          file.path(
-            directory,
-            "shapes_ucs_ms"
-          )
-        )
-      },
-      logical(1)
-    )
-  ]
-
-  if (length(script_directories) > 0) {
-
-    return(
-      normalizePath(
-        script_directories[1],
-        winslash = "/",
-        mustWork = TRUE
-      )
-    )
-  }
-
-  normalizePath(
-    getwd(),
-    winslash = "/",
-    mustWork = TRUE
-  )
-}
-
-
 file_csv <- locate_data_file()
 
 data_directory <- dirname(
@@ -481,10 +446,8 @@ analysis_directory <- if (
   data_directory
 }
 
-script_directory <- locate_script_directory()
-
 output_directory <- file.path(
-  script_directory,
+  analysis_directory,
   "output"
 )
 
@@ -503,11 +466,6 @@ message(
 message(
   "Analysis directory: ",
   analysis_directory
-)
-
-message(
-  "Script directory: ",
-  script_directory
 )
 
 message(
@@ -969,293 +927,6 @@ build_relief_projected <- function(
     dem_df = elevation_data,
     hill_df = hillshade_data
   )
-}
-
-
-make_legend_panel <- function(
-    elevation_values,
-    hypsometric_palette,
-    contour_interval
-) {
-  
-  elevation_range <- range(
-    elevation_values,
-    na.rm = TRUE
-  )
-  
-  breaks <- pretty(
-    elevation_range,
-    n = 5
-  )
-  
-  breaks <- unique(
-    sort(breaks)
-  )
-  
-  breaks <- breaks[
-    breaks >= floor(
-      elevation_range[1]
-    ) &
-      breaks <= ceiling(
-        elevation_range[2]
-      )
-  ]
-  
-  if (length(breaks) < 2) {
-    
-    breaks <- c(
-      floor(
-        elevation_range[1]
-      ),
-      ceiling(
-        elevation_range[2]
-      )
-    )
-  }
-  
-  if (
-    min(breaks) >
-    elevation_range[1]
-  ) {
-    
-    breaks <- c(
-      floor(
-        elevation_range[1]
-      ),
-      breaks
-    )
-  }
-  
-  if (
-    max(breaks) <
-    elevation_range[2]
-  ) {
-    
-    breaks <- c(
-      breaks,
-      ceiling(
-        elevation_range[2]
-      )
-    )
-  }
-  
-  breaks <- unique(
-    sort(breaks)
-  )
-  
-  if (length(breaks) > 6) {
-    
-    positions <- round(
-      seq(
-        1,
-        length(breaks),
-        length.out = 6
-      )
-    )
-    
-    breaks <- unique(
-      sort(
-        breaks[positions]
-      )
-    )
-  }
-  
-  legend_colors <- grDevices::colorRampPalette(
-    hypsometric_palette
-  )(
-    length(breaks) - 1
-  )
-  
-  step_x <- 1.35
-  rectangle_width <- 1.05
-  
-  legend_data <- data.frame(
-    xmin = seq(
-      0,
-      by = step_x,
-      length.out = length(legend_colors)
-    ),
-    xmax = seq(
-      rectangle_width,
-      by = step_x,
-      length.out = length(legend_colors)
-    ),
-    xmid = seq(
-      rectangle_width / 2,
-      by = step_x,
-      length.out = length(legend_colors)
-    ),
-    fill_color = legend_colors,
-    label = paste0(
-      round(
-        breaks[-length(breaks)]
-      ),
-      "–",
-      round(
-        breaks[-1]
-      ),
-      " m"
-    )
-  )
-  
-  maximum_x <- max(
-    legend_data$xmax
-  ) + 8
-  
-  ggplot() +
-    theme_void() +
-    coord_cartesian(
-      xlim = c(
-        0,
-        maximum_x
-      ),
-      ylim = c(
-        0,
-        4.4
-      ),
-      clip = "off"
-    ) +
-    annotate(
-      "text",
-      x = 0,
-      y = 4,
-      label = "Legend",
-      hjust = 0,
-      fontface = "bold",
-      size = 5.2
-    ) +
-    annotate(
-      "text",
-      x = 0,
-      y = 3.15,
-      label = "Elevation (m)",
-      hjust = 0,
-      fontface = "bold",
-      size = 4.2
-    ) +
-    geom_rect(
-      data = legend_data,
-      aes(
-        xmin = xmin,
-        xmax = xmax,
-        ymin = 2.25,
-        ymax = 2.68,
-        fill = fill_color
-      ),
-      color = "grey35",
-      linewidth = 0.25,
-      inherit.aes = FALSE
-    ) +
-    scale_fill_identity() +
-    geom_text(
-      data = legend_data,
-      aes(
-        x = xmid,
-        y = 1.72,
-        label = label
-      ),
-      size = 2.7,
-      inherit.aes = FALSE
-    ) +
-    annotate(
-      "segment",
-      x = max(
-        legend_data$xmax
-      ) + 0.7,
-      xend = max(
-        legend_data$xmax
-      ) + 1.55,
-      y = 2.46,
-      yend = 2.46,
-      color = scales::alpha(
-        "#7A2D1B",
-        0.55
-      ),
-      linewidth = 0.70
-    ) +
-    annotate(
-      "text",
-      x = max(
-        legend_data$xmax
-      ) + 1.80,
-      y = 2.46,
-      label = paste0(
-        "Contour interval in panel C: ",
-        contour_interval,
-        " m"
-      ),
-      hjust = 0,
-      size = 3.5
-    ) +
-    annotate(
-      "point",
-      x = max(
-        legend_data$xmax
-      ) + 1.10,
-      y = 1.50,
-      shape = 21,
-      size = 3.3,
-      fill = "grey20",
-      color = "white",
-      stroke = 0.6
-    ) +
-    annotate(
-      "text",
-      x = max(
-        legend_data$xmax
-      ) + 1.80,
-      y = 1.50,
-      label = "Representative point in panel C",
-      hjust = 0,
-      size = 3.5
-    ) +
-    theme(
-      plot.margin = margin(
-        0,
-        0,
-        0,
-        0
-      )
-    )
-}
-
-
-make_caption_panel <- function(
-    caption_text
-) {
-  
-  ggplot() +
-    theme_void() +
-    annotate(
-      "text",
-      x = 0,
-      y = 1,
-      label = caption_text,
-      hjust = 0,
-      vjust = 1,
-      size = 3.7,
-      lineheight = 1.03
-    ) +
-    coord_cartesian(
-      xlim = c(
-        0,
-        1
-      ),
-      ylim = c(
-        0,
-        1
-      ),
-      expand = FALSE,
-      clip = "off"
-    ) +
-    theme(
-      plot.margin = margin(
-        0,
-        0,
-        0,
-        0
-      )
-    )
 }
 
 
@@ -1758,106 +1429,6 @@ load_protected_areas <- function(
 }
 
 
-make_protected_area_inset <- function(
-    polygon,
-    fill_color
-) {
-  
-  polygon_projected <- sf::st_transform(
-    polygon,
-    5880
-  )
-  
-  polygon_bbox <- sf::st_bbox(
-    polygon_projected
-  )
-  
-  polygon_width <- as.numeric(
-    polygon_bbox["xmax"] -
-      polygon_bbox["xmin"]
-  )
-  
-  polygon_height <- as.numeric(
-    polygon_bbox["ymax"] -
-      polygon_bbox["ymin"]
-  )
-  
-  padding_x <- max(
-    polygon_width * 0.10,
-    3000
-  )
-  
-  padding_y <- max(
-    polygon_height * 0.10,
-    3000
-  )
-  
-  x_limits <- c(
-    polygon_bbox["xmin"] - padding_x,
-    polygon_bbox["xmax"] + padding_x
-  )
-  
-  y_limits <- c(
-    polygon_bbox["ymin"] - padding_y,
-    polygon_bbox["ymax"] + padding_y
-  )
-  
-  ggplot() +
-    geom_sf(
-      data = polygon_projected,
-      fill = scales::alpha(
-        fill_color,
-        0.18
-      ),
-      color = fill_color,
-      linewidth = 1.05
-    ) +
-    geom_sf(
-      data = sf::st_boundary(
-        polygon_projected
-      ),
-      color = fill_color,
-      linewidth = 0.55
-    ) +
-    coord_sf(
-      xlim = x_limits,
-      ylim = y_limits,
-      expand = FALSE,
-      crs = sf::st_crs(
-        polygon_projected
-      )
-    ) +
-    theme_minimal(
-      base_size = 10
-    ) +
-    theme(
-      panel.grid.major = element_line(
-        color = "grey90",
-        linewidth = 0.22
-      ),
-      panel.grid.minor = element_blank(),
-      axis.title = element_blank(),
-      axis.text = element_blank(),
-      axis.ticks = element_blank(),
-      plot.margin = margin(
-        0,
-        0,
-        0,
-        0
-      ),
-      plot.background = element_rect(
-        fill = "white",
-        color = "grey70",
-        linewidth = 0.45
-      ),
-      panel.background = element_rect(
-        fill = "white",
-        color = NA
-      )
-    )
-}
-
-
 hypsometric_colors <- c(
   "#1C8D8A",
   "#1FA45B",
@@ -1879,15 +1450,15 @@ landscape_colors <- c(
 area_titles <- c(
   "pantanal" = paste0(
     "APA da Baía Negra\n",
-    "(Pantanal 5.420,58 hectares)"
+    "(Pantanal · 5,420.58 ha)"
   ),
   "cerrado" = paste0(
     "Parque Nacional da Serra da Bodoquena\n",
-    "(Cerrado 77.021,58 hectares)"
+    "(Cerrado · 77,021.58 ha)"
   ),
   "floodplain" = paste0(
     "Parque Estadual das Várzeas do Rio Ivinhema\n",
-    "(Floodplain 73.345,15 hectares)"
+    "(Floodplain · 73,345.15 ha)"
   )
 )
 
@@ -2159,7 +1730,7 @@ representative_points <- sf::st_as_sf(
 
 
 protected_areas <- load_protected_areas(
-  script_directory
+  analysis_directory
 )
 
 
@@ -2412,110 +1983,129 @@ cat(
 )
 
 
-legend_plot <- make_legend_panel(
-  relief_ms$dem_df$elevation,
-  hypsometric_colors,
-  contour_interval_ms
+figure_width_in <- 190 / 25.4
+
+output_suffix <- "v2_redesign"
+
+
+font_family <- "Arial"
+
+
+font_size <- c(
+  tag = 11,
+  panel_title = 9.5,
+  inset_name = 8,
+  inset_info = 7.5,
+  axis = 7,
+  context = 7,
+  legend_title = 8.5,
+  legend_text = 7.5
 )
 
 
-caption_line_1 <- paste0(
-  "Coordinate system / datum: Geographic coordinates ",
-  "(latitude/longitude), SIRGAS 2000 (EPSG:4674)."
+text_pt <- function(points) {
+  points / ggplot2::.pt
+}
+
+
+inches_to_x <- function(inches) {
+  inches / figure_width_in
+}
+
+
+inches_to_y <- function(inches) {
+  inches / figure_height_in
+}
+
+
+elevation_limits <- c(
+  floor(
+    stats::quantile(
+      relief_ms$dem_df$elevation,
+      0.0001,
+      names = FALSE
+    )
+  ),
+  ceiling(
+    max(
+      relief_ms$dem_df$elevation,
+      na.rm = TRUE
+    )
+  )
 )
 
 
-caption_line_2 <- paste0(
-  "Hypsometric tint and hillshade derived from DEM obtained ",
-  "via the elevatr package and processed in terra."
+ms_palette_colors <- hypsometric_colors[-1]
+
+ms_palette_stops <- c(
+  elevation_limits[1],
+  125,
+  325,
+  525,
+  725,
+  elevation_limits[2]
+)
+
+ms_palette_values <- scales::rescale(
+  ms_palette_stops,
+  from = elevation_limits
 )
 
 
-caption_line_3 <- paste0(
-  "Administrative limits: Natural Earth and geobr. ",
-  "Protected areas: official MMA/CNUC polygons when available ",
-  "(fallback: geobr)."
-)
-
-
-caption_line_4 <- paste0(
-  "Contour interval in panel C: ",
-  contour_interval_ms,
-  " m. Sampling data: ",
-  sampling_period,
-  ". Cartographic elaboration: ",
-  map_author,
-  ", ",
-  map_year,
-  "."
-)
-
-
-caption_text <- paste(
-  caption_line_1,
-  caption_line_2,
-  caption_line_3,
-  caption_line_4,
-  sep = "\n"
-)
-
-
-caption_plot <- make_caption_panel(
-  caption_text
-)
-
-
-south_america_plot <- ggplot() +
-  geom_raster(
-    data = relief_south_america$dem_df,
-    aes(
-      x = x,
-      y = y,
-      fill = elevation
-    ),
-    interpolate = TRUE
-  ) +
+elevation_fill_scale <- function() {
+  
   scale_fill_gradientn(
-    colours = hypsometric_colors,
-    guide = "none",
-    na.value = "transparent"
-  ) +
-  geom_raster(
-    data = relief_south_america$hill_df,
-    aes(
-      x = x,
-      y = y,
-      alpha = shadow_alpha
-    ),
-    fill = "black",
-    interpolate = TRUE
-  ) +
-  scale_alpha_identity(
+    colours = ms_palette_colors,
+    values = ms_palette_values,
+    limits = elevation_limits,
+    oob = scales::squish,
+    na.value = "transparent",
     guide = "none"
-  ) +
-  geom_sf(
-    data = south_america,
-    fill = NA,
-    color = "grey70",
-    linewidth = 0.22
-  ) +
-  geom_sf(
-    data = brazil,
-    fill = NA,
-    color = "black",
-    linewidth = 0.55
-  ) +
-  coord_sf(
-    expand = FALSE
-  ) +
-  theme_void(
-    base_size = 11
-  ) +
+  )
+}
+
+
+highlight_color <- "#C0392B"
+
+
+area_letters <- c(
+  pantanal = "d",
+  cerrado = "e",
+  floodplain = "f"
+)
+
+
+inset_titles <- list(
+  pantanal = c(
+    name = "APA da Baía Negra",
+    info = "Pantanal · 5,420.58 ha"
+  ),
+  cerrado = c(
+    name = "Parque Nacional da\nSerra da Bodoquena",
+    info = "Cerrado · 77,021.58 ha"
+  ),
+  floodplain = c(
+    name = "Parque Estadual das\nVárzeas do Rio\nIvinhema",
+    info = "Floodplain · 73,345.15 ha"
+  )
+)
+
+
+protected_area_split <- split(
+  protected_areas,
+  as.character(
+    protected_areas$area_id
+  )
+)
+
+
+blank_map_theme <- theme_void(
+  base_family = font_family
+) +
   theme(
     plot.background = element_rect(
       fill = "white",
-      color = "grey80",
-      linewidth = 0.35
+      color = NA
     ),
     panel.background = element_rect(
       fill = "white",
@@ -2530,69 +2120,60 @@ south_america_plot <- ggplot() +
   )
 
 
+# ---- A and B: simple locator maps ----
+
+
+south_america_plot <- ggplot() +
+  geom_sf(
+    data = south_america,
+    fill = "grey88",
+    color = "white",
+    linewidth = 0.2
+  ) +
+  geom_sf(
+    data = brazil_union,
+    fill = "grey72",
+    color = "grey40",
+    linewidth = 0.3
+  ) +
+  geom_sf(
+    data = mato_grosso_do_sul,
+    fill = highlight_color,
+    color = highlight_color,
+    linewidth = 0.2
+  ) +
+  coord_sf(
+    expand = FALSE
+  ) +
+  blank_map_theme
+
+
 brazil_plot <- ggplot() +
-  geom_raster(
-    data = relief_brazil$dem_df,
-    aes(
-      x = x,
-      y = y,
-      fill = elevation
-    ),
-    interpolate = TRUE
-  ) +
-  scale_fill_gradientn(
-    colours = hypsometric_colors,
-    guide = "none",
-    na.value = "transparent"
-  ) +
-  geom_raster(
-    data = relief_brazil$hill_df,
-    aes(
-      x = x,
-      y = y,
-      alpha = shadow_alpha
-    ),
-    fill = "black",
-    interpolate = TRUE
-  ) +
-  scale_alpha_identity(
-    guide = "none"
+  geom_sf(
+    data = brazilian_states,
+    fill = "grey88",
+    color = "white",
+    linewidth = 0.25
   ) +
   geom_sf(
     data = brazil_union,
     fill = NA,
-    color = "grey55",
-    linewidth = 0.35
+    color = "grey40",
+    linewidth = 0.3
   ) +
   geom_sf(
     data = mato_grosso_do_sul,
-    fill = NA,
-    color = "black",
-    linewidth = 0.65
+    fill = highlight_color,
+    color = highlight_color,
+    linewidth = 0.2
   ) +
   coord_sf(
     expand = FALSE
   ) +
-  theme_void(
-    base_size = 11
-  ) +
-  theme(
-    plot.background = element_rect(
-      fill = "white",
-      color = "grey80",
-      linewidth = 0.35
-    ),
-    panel.background = element_rect(
-      fill = "white",
-      color = NA
-    ),
-    plot.margin = margin(
-      0,
-      0,
-      0,
-      0
-    )
-  )
+  blank_map_theme
+
+
+# ---- C: Mato Grosso do Sul with neighbouring units for context ----
 
 
 ms_bbox <- sf::st_bbox(
@@ -2600,7 +2181,203 @@ ms_bbox <- sf::st_bbox(
 )
 
 
+ms_padding <- 0.04 * as.numeric(
+  ms_bbox["xmax"] - ms_bbox["xmin"]
+)
+
+
+ms_extent <- c(
+  xmin = as.numeric(ms_bbox["xmin"]) - ms_padding,
+  xmax = as.numeric(ms_bbox["xmax"]) + ms_padding,
+  ymin = as.numeric(ms_bbox["ymin"]) - ms_padding,
+  ymax = as.numeric(ms_bbox["ymax"]) + ms_padding
+)
+
+
+ms_extent_polygon <- sf::st_as_sfc(
+  sf::st_bbox(
+    ms_extent,
+    crs = sf::st_crs(5880)
+  )
+)
+
+
+crop_to_extent <- function(layer) {
+  
+  layer |>
+    sf::st_transform(
+      5880
+    ) |>
+    sf::st_make_valid() |>
+    sf::st_intersection(
+      ms_extent_polygon
+    ) |>
+    (\(cropped) sf::st_sf(
+      label = cropped$label,
+      geometry = sf::st_geometry(cropped)
+    ))()
+}
+
+
+neighbour_countries <- south_america |>
+  dplyr::filter(
+    admin != "Brazil"
+  ) |>
+  dplyr::select(
+    label = admin
+  ) |>
+  crop_to_extent()
+
+
+neighbour_states <- brazilian_states |>
+  dplyr::filter(
+    abbrev_state != "MS"
+  ) |>
+  dplyr::select(
+    label = abbrev_state
+  ) |>
+  crop_to_extent()
+
+
+context_layers <- rbind(
+  neighbour_countries |>
+    dplyr::mutate(
+      label = toupper(label)
+    ),
+  neighbour_states
+)
+
+
+context_labels <- context_layers |>
+  sf::st_difference(
+    sf::st_buffer(
+      sf::st_geometry(
+        mato_grosso_do_sul_projected
+      ),
+      8000
+    )
+  ) |>
+  dplyr::mutate(
+    area_km2 = as.numeric(
+      sf::st_area(geometry)
+    ) / 1e6
+  ) |>
+  dplyr::filter(
+    area_km2 > 2500
+  ) |>
+  sf::st_point_on_surface()
+
+
+context_labels <- cbind(
+  sf::st_drop_geometry(
+    context_labels
+  ),
+  sf::st_coordinates(
+    context_labels
+  )
+)
+
+
+manual_context_labels <- data.frame(
+  label = c(
+    "BOLIVIA",
+    "PARAGUAY"
+  ),
+  lon = c(
+    -58.36,
+    -57.15
+  ),
+  lat = c(
+    -19.15,
+    -23.45
+  ),
+  angle = c(
+    90,
+    0
+  )
+)
+
+
+manual_context_points <- sf::st_as_sf(
+  manual_context_labels,
+  coords = c(
+    "lon",
+    "lat"
+  ),
+  crs = 4674
+) |>
+  sf::st_transform(
+    5880
+  )
+
+
+context_labels <- rbind(
+  context_labels |>
+    dplyr::filter(
+      !label %in% manual_context_labels$label
+    ) |>
+    dplyr::transmute(
+      label,
+      angle = 0,
+      X,
+      Y
+    ),
+  cbind(
+    sf::st_drop_geometry(
+      manual_context_points
+    ),
+    sf::st_coordinates(
+      manual_context_points
+    )
+  )
+)
+
+
+marker_offsets_km <- data.frame(
+  area_id = c(
+    "pantanal",
+    "cerrado",
+    "floodplain"
+  ),
+  dx = c(
+    55,
+    -55,
+    -40
+  ),
+  dy = c(
+    30,
+    -20,
+    -45
+  )
+)
+
+
+marker_data <- anchor_projected_coordinates |>
+  dplyr::mutate(
+    area_id = as.character(
+      area_id
+    )
+  ) |>
+  dplyr::left_join(
+    marker_offsets_km,
+    by = "area_id"
+  ) |>
+  dplyr::mutate(
+    label_x = Xp + dx * 1000,
+    label_y = Yp + dy * 1000,
+    letter = unname(
+      area_letters[area_id]
+    )
+  )
+
+
 ms_plot <- ggplot() +
+  geom_sf(
+    data = context_layers,
+    fill = "grey93",
+    color = "white",
+    linewidth = 0.35
+  ) +
   geom_raster(
     data = relief_ms$dem_df,
     aes(
@@ -2610,11 +2387,7 @@ ms_plot <- ggplot() +
     ),
     interpolate = TRUE
   ) +
-  scale_fill_gradientn(
-    colours = hypsometric_colors,
-    guide = "none",
-    na.value = "transparent"
-  ) +
+  elevation_fill_scale() +
   geom_raster(
     data = relief_ms$hill_df,
     aes(
@@ -2640,22 +2413,32 @@ ms_plot <- ggplot() +
       "#7A2D1B",
       0.22
     ),
-    linewidth = 0.16
+    linewidth = 0.14
   ) +
   geom_sf(
     data = mato_grosso_do_sul_projected,
     fill = NA,
-    color = "grey30",
-    linewidth = 0.60
+    color = "grey20",
+    linewidth = 0.5
   ) +
-  ggnewscale::new_scale_fill() +
+  geom_text(
+    data = context_labels,
+    aes(
+      x = X,
+      y = Y,
+      label = label,
+      angle = angle
+    ),
+    size = text_pt(font_size[["context"]]),
+    family = font_family,
+    fontface = "italic",
+    color = "grey45"
+  ) +
   geom_sf(
     data = protected_areas_projected,
-    aes(
-      fill = area_id
-    ),
-    color = NA,
-    alpha = 0.10
+    fill = NA,
+    color = "white",
+    linewidth = 1.6
   ) +
   geom_sf(
     data = protected_areas_projected,
@@ -2663,44 +2446,43 @@ ms_plot <- ggplot() +
       color = area_id
     ),
     fill = NA,
-    linewidth = 1.05,
-    show.legend = FALSE
+    linewidth = 0.8
   ) +
-  geom_point(
-    data = anchor_projected_coordinates,
+  geom_segment(
+    data = marker_data,
     aes(
       x = Xp,
       y = Yp,
+      xend = label_x,
+      yend = label_y
+    ),
+    color = "grey15",
+    linewidth = 0.35
+  ) +
+  ggnewscale::new_scale_fill() +
+  geom_point(
+    data = marker_data,
+    aes(
+      x = label_x,
+      y = label_y,
       fill = area_id
     ),
     shape = 21,
-    size = 3.8,
+    size = 5.2,
     color = "white",
-    stroke = 0.90
+    stroke = 0.8
   ) +
-  ggspatial::annotation_scale(
-    location = "bl",
-    width_hint = 0.22,
-    line_width = 0.6
-  ) +
-  ggspatial::annotation_north_arrow(
-    location = "br",
-    which_north = "true",
-    style = ggspatial::north_arrow_orienteering(
-      fill = c(
-        "white",
-        "black"
-      ),
-      line_col = "black"
+  geom_text(
+    data = marker_data,
+    aes(
+      x = label_x,
+      y = label_y,
+      label = letter
     ),
-    height = grid::unit(
-      1,
-      "cm"
-    ),
-    width = grid::unit(
-      1,
-      "cm"
-    )
+    size = text_pt(8),
+    family = font_family,
+    fontface = "bold",
+    color = "white"
   ) +
   scale_fill_manual(
     values = landscape_colors,
@@ -2710,31 +2492,109 @@ ms_plot <- ggplot() +
     values = landscape_colors,
     guide = "none"
   ) +
-  coord_sf(
-    crs = sf::st_crs(
-      mato_grosso_do_sul_projected
+  ggspatial::annotation_scale(
+    location = "bl",
+    width_hint = 0.20,
+    style = "bar",
+    bar_cols = c(
+      "grey15",
+      "white"
     ),
-    xlim = c(
-      ms_bbox["xmin"],
-      ms_bbox["xmax"]
+    line_width = 0.4,
+    height = grid::unit(
+      0.12,
+      "cm"
     ),
-    ylim = c(
-      ms_bbox["ymin"],
-      ms_bbox["ymax"]
+    text_cex = 0.62,
+    text_family = font_family,
+    pad_x = grid::unit(
+      0.25,
+      "cm"
     ),
-    expand = FALSE,
-    clip = "on"
+    pad_y = grid::unit(
+      0.25,
+      "cm"
+    )
   ) +
-  theme_void(
-    base_size = 11
+  ggspatial::annotation_north_arrow(
+    location = "tr",
+    which_north = "true",
+    style = ggspatial::north_arrow_orienteering(
+      fill = c(
+        "white",
+        "grey15"
+      ),
+      line_col = "grey15",
+      text_size = 7,
+      text_family = font_family
+    ),
+    height = grid::unit(
+      0.8,
+      "cm"
+    ),
+    width = grid::unit(
+      0.8,
+      "cm"
+    ),
+    pad_x = grid::unit(
+      0.2,
+      "cm"
+    ),
+    pad_y = grid::unit(
+      0.2,
+      "cm"
+    )
+  ) +
+  coord_sf(
+    crs = sf::st_crs(5880),
+    datum = sf::st_crs(4674),
+    xlim = ms_extent[c("xmin", "xmax")],
+    ylim = ms_extent[c("ymin", "ymax")],
+    expand = FALSE
+  ) +
+  scale_x_continuous(
+    breaks = seq(-58, -50, by = 2)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-24, -16, by = 2)
+  ) +
+  theme_bw(
+    base_family = font_family
   ) +
   theme(
-    plot.background = element_rect(
-      fill = "white",
-      color = "grey80",
-      linewidth = 0.35
+    panel.grid.major = element_line(
+      color = scales::alpha(
+        "grey30",
+        0.25
+      ),
+      linewidth = 0.2,
+      linetype = "dashed"
     ),
-    panel.background = element_rect(
+    panel.ontop = TRUE,
+    panel.background = element_blank(),
+    panel.border = element_rect(
+      fill = NA,
+      color = "grey30",
+      linewidth = 0.4
+    ),
+    axis.title = element_blank(),
+    axis.text = element_text(
+      size = font_size[["axis"]],
+      color = "grey25"
+    ),
+    axis.text.y = element_text(
+      angle = 90,
+      hjust = 0.5
+    ),
+    axis.ticks = element_line(
+      color = "grey30",
+      linewidth = 0.3
+    ),
+    axis.ticks.length = grid::unit(
+      0.08,
+      "cm"
+    ),
+    plot.background = element_rect(
       fill = "white",
       color = NA
     ),
@@ -2747,464 +2607,790 @@ ms_plot <- ggplot() +
   )
 
 
-protected_area_split <- split(
-  protected_areas,
-  as.character(
-    protected_areas$area_id
+# ---- D, E, F: enlarged study areas with local relief ----
+
+
+inset_extent <- function(
+    polygon,
+    box_aspect,
+    shift_x = 0
+) {
+  
+  box_aspect <- unname(
+    box_aspect
   )
-)
-
-
-pantanal_inset <- make_protected_area_inset(
-  protected_area_split[["pantanal"]],
-  landscape_colors[["pantanal"]]
-)
-
-
-cerrado_inset <- make_protected_area_inset(
-  protected_area_split[["cerrado"]],
-  landscape_colors[["cerrado"]]
-)
-
-
-floodplain_inset <- make_protected_area_inset(
-  protected_area_split[["floodplain"]],
-  landscape_colors[["floodplain"]]
-)
-
-
-box_A <- c(
-  x = 0.05,
-  y = 0.73,
-  w = 0.17,
-  h = 0.16
-)
-
-
-box_B <- c(
-  x = 0.25,
-  y = 0.73,
-  w = 0.17,
-  h = 0.16
-)
-
-
-ms_aspect <- as.numeric(
-  (
-    ms_bbox["ymax"] -
-      ms_bbox["ymin"]
-  ) /
-    (
-      ms_bbox["xmax"] -
-        ms_bbox["xmin"]
+  
+  polygon_bbox <- sf::st_bbox(
+    sf::st_transform(
+      polygon,
+      5880
     )
-)
-
-
-box_C_width <- 0.36
-box_C_height <- box_C_width * ms_aspect
-
-maximum_box_C_height <- 0.33
-
-
-if (box_C_height > maximum_box_C_height) {
-  
-  box_C_height <- maximum_box_C_height
-  box_C_width <- box_C_height / ms_aspect
-}
-
-
-box_C <- c(
-  x = 0.06,
-  y = 0.20,
-  w = box_C_width,
-  h = box_C_height
-)
-
-
-box_pantanal <- c(
-  x = 0.73,
-  y = 0.67,
-  w = 0.21,
-  h = 0.15
-)
-
-
-box_cerrado <- c(
-  x = 0.73,
-  y = 0.44,
-  w = 0.21,
-  h = 0.15
-)
-
-
-box_floodplain <- c(
-  x = 0.73,
-  y = 0.21,
-  w = 0.21,
-  h = 0.15
-)
-
-
-box_legend <- c(
-  x = 0.08,
-  y = 0.102,
-  w = 0.84,
-  h = 0.086
-)
-
-
-box_caption <- c(
-  x = 0.028,
-  y = 0.012,
-  w = 0.945,
-  h = 0.062
-)
-
-
-title_A_y <- box_A["y"] +
-  box_A["h"] +
-  0.018
-
-
-title_B_y <- box_B["y"] +
-  box_B["h"] +
-  0.018
-
-
-title_C_y <- box_C["y"] +
-  box_C["h"] +
-  0.058
-
-
-subtitle_C_y <- title_C_y -
-  0.024
-
-
-title_pantanal_y <- box_pantanal["y"] +
-  box_pantanal["h"] +
-  0.014
-
-
-title_cerrado_y <- box_cerrado["y"] +
-  box_cerrado["h"] +
-  0.014
-
-
-title_floodplain_y <- box_floodplain["y"] +
-  box_floodplain["h"] +
-  0.014
-
-
-title_A_x <- box_A["x"] +
-  box_A["w"] / 2 +
-  0.02
-
-
-title_B_x <- box_B["x"] +
-  box_B["w"] / 2 +
-  0.02
-
-
-title_C_x <- box_C["x"] +
-  0.018
-
-
-subtitle_C_x <- box_C["x"] +
-  0.018
-
-
-title_pantanal_x <- box_pantanal["x"] +
-  box_pantanal["w"] / 2
-
-
-title_cerrado_x <- box_cerrado["x"] +
-  box_cerrado["w"] / 2
-
-
-title_floodplain_x <- box_floodplain["x"] +
-  box_floodplain["w"] / 2
-
-
-tag_A_x <- box_A["x"] -
-  0.002
-
-
-tag_B_x <- box_B["x"] -
-  0.002
-
-
-tag_C_x <- box_C["x"] -
-  0.020
-
-
-tag_A_y <- title_A_y
-tag_B_y <- title_B_y
-tag_C_y <- title_C_y + 0.004
-
-
-target_centers <- data.frame(
-  area_id = c(
-    "pantanal",
-    "cerrado",
-    "floodplain"
-  ),
-  xend = c(
-    box_pantanal["x"],
-    box_cerrado["x"],
-    box_floodplain["x"]
-  ),
-  yend = c(
-    box_pantanal["y"] +
-      box_pantanal["h"] / 2,
-    
-    box_cerrado["y"] +
-      box_cerrado["h"] / 2,
-    
-    box_floodplain["y"] +
-      box_floodplain["h"] / 2
   )
-)
-
-
-connector_data <- anchor_projected_coordinates |>
-  dplyr::mutate(
-    area_id = as.character(
-      area_id
+  
+  center_x <- mean(
+    as.numeric(
+      polygon_bbox[c("xmin", "xmax")]
     )
-  ) |>
-  dplyr::left_join(
-    target_centers,
-    by = "area_id"
-  ) |>
-  dplyr::mutate(
-    x_normalized = (
-      Xp -
-        ms_bbox["xmin"]
-    ) /
-      (
-        ms_bbox["xmax"] -
-          ms_bbox["xmin"]
-      ),
-    
-    y_normalized = (
-      Yp -
-        ms_bbox["ymin"]
-    ) /
-      (
-        ms_bbox["ymax"] -
-          ms_bbox["ymin"]
-      ),
-    
-    x = box_C["x"] +
-      box_C["w"] *
-      x_normalized,
-    
-    y = box_C["y"] +
-      box_C["h"] *
-      y_normalized,
-    
-    xend = xend + 0.001
-  )
-
-
-location_figure <- cowplot::ggdraw() +
-  cowplot::draw_plot(
-    south_america_plot,
-    x = box_A["x"],
-    y = box_A["y"],
-    width = box_A["w"],
-    height = box_A["h"]
-  ) +
-  cowplot::draw_plot(
-    brazil_plot,
-    x = box_B["x"],
-    y = box_B["y"],
-    width = box_B["w"],
-    height = box_B["h"]
-  ) +
-  cowplot::draw_plot(
-    ms_plot,
-    x = box_C["x"],
-    y = box_C["y"],
-    width = box_C["w"],
-    height = box_C["h"]
-  ) +
-  cowplot::draw_plot(
-    pantanal_inset,
-    x = box_pantanal["x"],
-    y = box_pantanal["y"],
-    width = box_pantanal["w"],
-    height = box_pantanal["h"]
-  ) +
-  cowplot::draw_plot(
-    cerrado_inset,
-    x = box_cerrado["x"],
-    y = box_cerrado["y"],
-    width = box_cerrado["w"],
-    height = box_cerrado["h"]
-  ) +
-  cowplot::draw_plot(
-    floodplain_inset,
-    x = box_floodplain["x"],
-    y = box_floodplain["y"],
-    width = box_floodplain["w"],
-    height = box_floodplain["h"]
-  ) +
-  cowplot::draw_plot(
-    legend_plot,
-    x = box_legend["x"],
-    y = box_legend["y"],
-    width = box_legend["w"],
-    height = box_legend["h"]
-  ) +
-  cowplot::draw_plot(
-    caption_plot,
-    x = box_caption["x"],
-    y = box_caption["y"],
-    width = box_caption["w"],
-    height = box_caption["h"]
-  )
-
-
-for (i in seq_len(
-  nrow(connector_data)
-)) {
-  
-  area_name <- as.character(
-    connector_data$area_id[i]
   )
   
-  line_color <- unname(
-    landscape_colors[area_name]
+  center_y <- mean(
+    as.numeric(
+      polygon_bbox[c("ymin", "ymax")]
+    )
   )
   
-  if (
-    length(line_color) == 0 ||
-    is.na(line_color) ||
-    is.na(connector_data$x[i]) ||
-    is.na(connector_data$y[i]) ||
-    is.na(connector_data$xend[i]) ||
-    is.na(connector_data$yend[i])
-  ) {
-    
-    next
+  half_width <- as.numeric(
+    polygon_bbox["xmax"] - polygon_bbox["xmin"]
+  ) * 0.58 + 1500
+  
+  half_height <- as.numeric(
+    polygon_bbox["ymax"] - polygon_bbox["ymin"]
+  ) * 0.58 + 1500
+  
+  if (half_height / half_width < box_aspect) {
+    half_height <- half_width * box_aspect
+  } else {
+    half_width <- half_height / box_aspect
   }
   
-  location_figure <- location_figure +
-    cowplot::draw_line(
-      x = c(
-        connector_data$x[i],
-        connector_data$xend[i]
+  center_x <- center_x + shift_x * half_width
+  
+  c(
+    xmin = center_x - half_width,
+    xmax = center_x + half_width,
+    ymin = center_y - half_height,
+    ymax = center_y + half_height
+  )
+}
+
+
+make_protected_area_inset <- function(
+    polygon,
+    area_color,
+    extent,
+    relief,
+    scale_location = "bl"
+) {
+  
+  polygon_projected <- sf::st_transform(
+    polygon,
+    5880
+  )
+  
+  ggplot() +
+    geom_raster(
+      data = relief$dem_df,
+      aes(
+        x = x,
+        y = y,
+        fill = elevation
       ),
-      y = c(
-        connector_data$y[i],
-        connector_data$yend[i]
+      interpolate = TRUE
+    ) +
+    elevation_fill_scale() +
+    geom_raster(
+      data = relief$hill_df,
+      aes(
+        x = x,
+        y = y,
+        alpha = shadow_alpha
       ),
-      color = scales::alpha(
-        line_color,
-        0.65
+      fill = "black",
+      interpolate = TRUE
+    ) +
+    scale_alpha_identity(
+      guide = "none"
+    ) +
+    geom_sf(
+      data = polygon_projected,
+      fill = scales::alpha(
+        "white",
+        0.22
       ),
-      linewidth = 1,
-      lineend = "round"
+      color = "white",
+      linewidth = 1.7
+    ) +
+    geom_sf(
+      data = polygon_projected,
+      fill = NA,
+      color = area_color,
+      linewidth = 0.8
+    ) +
+    ggspatial::annotation_scale(
+      location = scale_location,
+      width_hint = 0.28,
+      style = "bar",
+      bar_cols = c(
+        "grey15",
+        "white"
+      ),
+      line_width = 0.35,
+      height = grid::unit(
+        0.10,
+        "cm"
+      ),
+      text_cex = 0.58,
+      text_family = font_family,
+      text_col = "grey10",
+      pad_x = grid::unit(
+        0.12,
+        "cm"
+      ),
+      pad_y = grid::unit(
+        0.12,
+        "cm"
+      )
+    ) +
+    coord_sf(
+      crs = sf::st_crs(5880),
+      xlim = extent[c("xmin", "xmax")],
+      ylim = extent[c("ymin", "ymax")],
+      expand = FALSE
+    ) +
+    blank_map_theme +
+    theme(
+      panel.border = element_rect(
+        fill = NA,
+        color = area_color,
+        linewidth = 1
+      )
     )
 }
 
 
-location_figure <- location_figure +
-  cowplot::draw_label(
-    "A",
-    x = tag_A_x,
-    y = tag_A_y,
-    hjust = 0,
-    fontface = "bold",
-    size = 16
-  ) +
-  cowplot::draw_label(
-    "South America",
-    x = title_A_x,
-    y = title_A_y,
-    fontface = "bold",
-    size = 13
-  ) +
-  cowplot::draw_label(
-    "B",
-    x = tag_B_x,
-    y = tag_B_y,
-    hjust = 0,
-    fontface = "bold",
-    size = 16
-  ) +
-  cowplot::draw_label(
-    "Brazil",
-    x = title_B_x,
-    y = title_B_y,
-    fontface = "bold",
-    size = 13
-  ) +
-  cowplot::draw_label(
-    "C",
-    x = tag_C_x,
-    y = tag_C_y,
-    hjust = 0,
-    fontface = "bold",
-    size = 16
-  ) +
-  cowplot::draw_label(
-    main_title,
-    x = title_C_x,
-    y = title_C_y,
-    hjust = 0,
-    fontface = "bold",
-    size = 13.8
-  ) +
-  cowplot::draw_label(
-    main_subtitle,
-    x = subtitle_C_x,
-    y = subtitle_C_y,
-    hjust = 0,
-    size = 10.2
-  ) +
-  cowplot::draw_label(
-    area_titles[["pantanal"]],
-    x = title_pantanal_x,
-    y = title_pantanal_y,
-    fontface = "bold",
-    size = 10.3,
-    lineheight = 0.93
-  ) +
-  cowplot::draw_label(
-    area_titles[["cerrado"]],
-    x = title_cerrado_x,
-    y = title_cerrado_y,
-    fontface = "bold",
-    size = 9.7,
-    lineheight = 0.93
-  ) +
-  cowplot::draw_label(
-    area_titles[["floodplain"]],
-    x = title_floodplain_x,
-    y = title_floodplain_y,
-    fontface = "bold",
-    size = 9.4,
-    lineheight = 0.93
+# ---- Layout (inches from the bottom-left corner) ----
+
+
+make_box <- function(
+    x_in,
+    y_in,
+    w_in,
+    h_in
+) {
+  c(
+    x = inches_to_x(x_in),
+    y = inches_to_y(y_in),
+    w = inches_to_x(w_in),
+    h = inches_to_y(h_in)
+  )
+}
+
+
+ms_aspect <- (ms_extent[["ymax"]] - ms_extent[["ymin"]]) /
+  (ms_extent[["xmax"]] - ms_extent[["xmin"]])
+
+
+legend_height_in <- 0.62
+top_title_in <- 0.28
+
+c_axis_left_in <- 0.20
+c_axis_bottom_in <- 0.18
+c_panel_w_in <- 4.00
+c_panel_h_in <- c_panel_w_in * ms_aspect
+
+main_bottom_in <- legend_height_in + 0.16
+main_top_in <- main_bottom_in + c_axis_bottom_in + c_panel_h_in
+
+figure_height_in <- main_top_in + top_title_in + 0.04
+
+box_C <- make_box(
+  0.10,
+  main_bottom_in,
+  c_axis_left_in + c_panel_w_in,
+  c_axis_bottom_in + c_panel_h_in
+)
+
+
+right_x_in <- 0.10 + c_axis_left_in + c_panel_w_in + 0.25
+right_w_in <- figure_width_in - right_x_in - 0.08
+column_gap_in <- 0.14
+half_w_in <- (right_w_in - column_gap_in) / 2
+
+
+# Row A/B
+ab_box_h_in <- 0.95
+ab_y_in <- main_top_in - ab_box_h_in
+
+box_A <- make_box(
+  right_x_in,
+  ab_y_in,
+  half_w_in,
+  ab_box_h_in
+)
+
+box_B <- make_box(
+  right_x_in + half_w_in + column_gap_in,
+  ab_y_in,
+  half_w_in,
+  ab_box_h_in
+)
+
+
+# Row D
+d_title_in <- 0.40
+d_box_h_in <- 0.80
+d_y_in <- ab_y_in - 0.10 - d_title_in - d_box_h_in
+
+box_pantanal <- make_box(
+  right_x_in,
+  d_y_in,
+  right_w_in,
+  d_box_h_in
+)
+
+
+# Row E/F
+ef_title_in <- 0.64
+ef_y_in <- main_bottom_in + c_axis_bottom_in
+ef_box_h_in <- d_y_in - 0.10 - ef_title_in - ef_y_in
+
+box_cerrado <- make_box(
+  right_x_in,
+  ef_y_in,
+  half_w_in,
+  ef_box_h_in
+)
+
+box_floodplain <- make_box(
+  right_x_in + half_w_in + column_gap_in,
+  ef_y_in,
+  half_w_in,
+  ef_box_h_in
+)
+
+
+box_legend <- make_box(
+  0.10,
+  0.06,
+  figure_width_in - 0.20,
+  legend_height_in
+)
+
+
+inset_boxes <- list(
+  pantanal = box_pantanal,
+  cerrado = box_cerrado,
+  floodplain = box_floodplain
+)
+
+
+inset_scale_location <- c(
+  pantanal = "br",
+  cerrado = "br",
+  floodplain = "br"
+)
+
+
+inset_shift_x <- c(
+  pantanal = 0,
+  cerrado = 0.30,
+  floodplain = 0
+)
+
+
+inset_zoom <- c(
+  pantanal = 11,
+  cerrado = 10,
+  floodplain = 10
+)
+
+
+cat(
+  "Downloading the elevation models for the enlarged insets...\n"
+)
+
+
+inset_plots <- list()
+
+for (area_name in names(inset_boxes)) {
+  
+  box <- inset_boxes[[area_name]]
+  
+  extent <- inset_extent(
+    protected_area_split[[area_name]],
+    (box["h"] * figure_height_in) /
+      (box["w"] * figure_width_in),
+    shift_x = inset_shift_x[[area_name]]
+  )
+  
+  extent_polygon <- sf::st_as_sf(
+    sf::st_as_sfc(
+      sf::st_bbox(
+        extent,
+        crs = sf::st_crs(5880)
+      )
+    )
+  )
+  
+  inset_relief <- build_relief_projected(
+    extent_polygon,
+    zoom = inset_zoom[[area_name]],
+    buffer_m = 3000,
+    shadow_max = 0.30
+  )
+  
+  inset_plots[[area_name]] <- make_protected_area_inset(
+    protected_area_split[[area_name]],
+    landscape_colors[[area_name]],
+    extent,
+    inset_relief,
+    scale_location = inset_scale_location[[area_name]]
+  )
+}
+
+
+# ---- Legend (single row, full width) ----
+
+
+make_legend_panel <- function(
+    panel_width_in,
+    panel_height_in
+) {
+  
+  bar_x0 <- 0.10
+  bar_width <- 2.2
+  bar_y0 <- 0.20
+  bar_y1 <- 0.32
+  
+  bar_values <- seq(
+    elevation_limits[1],
+    elevation_limits[2],
+    length.out = 200
+  )
+  
+  bar_data <- data.frame(
+    xmin = bar_x0 + bar_width * scales::rescale(
+      utils::head(bar_values, -1),
+      from = elevation_limits
+    ),
+    xmax = bar_x0 + bar_width * scales::rescale(
+      utils::tail(bar_values, -1),
+      from = elevation_limits
+    ),
+    value = utils::head(bar_values, -1)
+  )
+  
+  tick_values <- seq(
+    100,
+    900,
+    by = 200
+  )
+  
+  tick_values <- tick_values[
+    tick_values >= elevation_limits[1] &
+      tick_values <= elevation_limits[2]
+  ]
+  
+  tick_data <- data.frame(
+    x = bar_x0 + bar_width * scales::rescale(
+      tick_values,
+      from = elevation_limits
+    ),
+    label = tick_values
+  )
+  
+  symbols_x <- bar_x0 + bar_width + 0.45
+  areas_x <- symbols_x + 1.95
+  
+  area_key <- data.frame(
+    area_id = names(area_letters),
+    letter = unname(area_letters),
+    x = areas_x + c(0, 0.72, 1.48),
+    label = c(
+      "Pantanal",
+      "Cerrado",
+      "Floodplain"
+    )
+  )
+  
+  ggplot() +
+    theme_void(
+      base_family = font_family
+    ) +
+    coord_cartesian(
+      xlim = c(
+        0,
+        panel_width_in
+      ),
+      ylim = c(
+        0,
+        panel_height_in
+      ),
+      expand = FALSE,
+      clip = "off"
+    ) +
+    annotate(
+      "segment",
+      x = 0,
+      xend = panel_width_in,
+      y = panel_height_in,
+      yend = panel_height_in,
+      color = "grey80",
+      linewidth = 0.3
+    ) +
+    annotate(
+      "text",
+      x = bar_x0,
+      y = panel_height_in - 0.10,
+      label = "Elevation (m)",
+      hjust = 0,
+      vjust = 1,
+      fontface = "bold",
+      family = font_family,
+      size = text_pt(font_size[["legend_title"]])
+    ) +
+    geom_rect(
+      data = bar_data,
+      aes(
+        xmin = xmin,
+        xmax = xmax,
+        ymin = bar_y0,
+        ymax = bar_y1,
+        fill = value
+      ),
+      color = NA
+    ) +
+    elevation_fill_scale() +
+    annotate(
+      "rect",
+      xmin = bar_x0,
+      xmax = bar_x0 + bar_width,
+      ymin = bar_y0,
+      ymax = bar_y1,
+      fill = NA,
+      color = "grey35",
+      linewidth = 0.25
+    ) +
+    geom_segment(
+      data = tick_data,
+      aes(
+        x = x,
+        xend = x,
+        y = bar_y0 - 0.03,
+        yend = bar_y0
+      ),
+      color = "grey35",
+      linewidth = 0.25
+    ) +
+    geom_text(
+      data = tick_data,
+      aes(
+        x = x,
+        y = bar_y0 - 0.06,
+        label = label
+      ),
+      vjust = 1,
+      family = font_family,
+      size = text_pt(font_size[["legend_text"]])
+    ) +
+    annotate(
+      "text",
+      x = symbols_x,
+      y = panel_height_in - 0.10,
+      label = "Symbols",
+      hjust = 0,
+      vjust = 1,
+      fontface = "bold",
+      family = font_family,
+      size = text_pt(font_size[["legend_title"]])
+    ) +
+    annotate(
+      "segment",
+      x = symbols_x,
+      xend = symbols_x + 0.25,
+      y = 0.30,
+      yend = 0.30,
+      color = scales::alpha(
+        "#7A2D1B",
+        0.55
+      ),
+      linewidth = 0.5
+    ) +
+    annotate(
+      "text",
+      x = symbols_x + 0.33,
+      y = 0.30,
+      label = paste0(
+        "Contour (",
+        contour_interval_ms,
+        " m)"
+      ),
+      hjust = 0,
+      family = font_family,
+      size = text_pt(font_size[["legend_text"]])
+    ) +
+    annotate(
+      "rect",
+      xmin = symbols_x,
+      xmax = symbols_x + 0.25,
+      ymin = 0.04,
+      ymax = 0.16,
+      fill = highlight_color,
+      color = NA
+    ) +
+    annotate(
+      "text",
+      x = symbols_x + 0.33,
+      y = 0.10,
+      label = "Mato Grosso do Sul (a, b)",
+      hjust = 0,
+      family = font_family,
+      size = text_pt(font_size[["legend_text"]])
+    ) +
+    annotate(
+      "text",
+      x = areas_x,
+      y = panel_height_in - 0.10,
+      label = "Study areas (enlarged in d–f)",
+      hjust = 0,
+      vjust = 1,
+      fontface = "bold",
+      family = font_family,
+      size = text_pt(font_size[["legend_title"]])
+    ) +
+    ggnewscale::new_scale_fill() +
+    geom_point(
+      data = area_key,
+      aes(
+        x = x + 0.08,
+        y = 0.22,
+        fill = area_id
+      ),
+      shape = 21,
+      size = 4.4,
+      color = "white",
+      stroke = 0.6
+    ) +
+    geom_text(
+      data = area_key,
+      aes(
+        x = x + 0.08,
+        y = 0.22,
+        label = letter
+      ),
+      fontface = "bold",
+      color = "white",
+      family = font_family,
+      size = text_pt(7)
+    ) +
+    geom_text(
+      data = area_key,
+      aes(
+        x = x + 0.22,
+        y = 0.22,
+        label = label
+      ),
+      hjust = 0,
+      family = font_family,
+      size = text_pt(font_size[["legend_text"]])
+    ) +
+    scale_fill_manual(
+      values = landscape_colors,
+      guide = "none"
+    ) +
+    theme(
+      plot.margin = margin(
+        0,
+        0,
+        0,
+        0
+      )
+    )
+}
+
+
+legend_plot <- make_legend_panel(
+  box_legend["w"] * figure_width_in,
+  box_legend["h"] * figure_height_in
+)
+
+
+# ---- Assemble ----
+
+
+draw_box <- function(
+    figure,
+    plot,
+    box
+) {
+  
+  figure +
+    cowplot::draw_plot(
+      plot,
+      x = box["x"],
+      y = box["y"],
+      width = box["w"],
+      height = box["h"]
+    )
+}
+
+
+draw_panel_title <- function(
+    figure,
+    tag,
+    title,
+    x,
+    y
+) {
+  
+  figure +
+    cowplot::draw_label(
+      tag,
+      x = x,
+      y = y,
+      hjust = 0,
+      vjust = 0,
+      fontface = "bold",
+      fontfamily = font_family,
+      size = font_size[["tag"]]
+    ) +
+    cowplot::draw_label(
+      title,
+      x = x + inches_to_x(0.20),
+      y = y,
+      hjust = 0,
+      vjust = 0,
+      fontface = "bold",
+      fontfamily = font_family,
+      size = font_size[["panel_title"]]
+    )
+}
+
+
+location_figure <- cowplot::ggdraw() |>
+  draw_box(
+    ms_plot,
+    box_C
+  ) |>
+  draw_box(
+    south_america_plot,
+    box_A
+  ) |>
+  draw_box(
+    brazil_plot,
+    box_B
+  ) |>
+  draw_box(
+    legend_plot,
+    box_legend
   )
 
 
-print(
-  location_figure
-)
+location_figure <- location_figure |>
+  draw_panel_title(
+    "a",
+    "South America",
+    box_A["x"],
+    box_A["y"] + box_A["h"] + inches_to_y(0.06)
+  ) |>
+  draw_panel_title(
+    "b",
+    "Brazil",
+    box_B["x"],
+    box_B["y"] + box_B["h"] + inches_to_y(0.06)
+  ) |>
+  draw_panel_title(
+    "c",
+    "Mato Grosso do Sul: relief and study areas",
+    box_C["x"],
+    box_C["y"] + box_C["h"] + inches_to_y(0.06)
+  )
+
+
+for (area_name in names(inset_boxes)) {
+  
+  box <- inset_boxes[[area_name]]
+  
+  location_figure <- location_figure |>
+    draw_box(
+      inset_plots[[area_name]],
+      box
+    )
+  
+  location_figure <- location_figure +
+    cowplot::draw_label(
+      area_letters[[area_name]],
+      x = box["x"],
+      y = box["y"] + box["h"] + inches_to_y(0.20),
+      hjust = 0,
+      vjust = 0,
+      fontface = "bold",
+      fontfamily = font_family,
+      size = font_size[["tag"]]
+    ) +
+    cowplot::draw_label(
+      inset_titles[[area_name]][["name"]],
+      x = box["x"] + inches_to_x(0.20),
+      y = box["y"] + box["h"] + inches_to_y(0.20),
+      hjust = 0,
+      vjust = 0,
+      fontface = "bold",
+      fontfamily = font_family,
+      size = font_size[["inset_name"]],
+      lineheight = 0.95
+    ) +
+    cowplot::draw_label(
+      inset_titles[[area_name]][["info"]],
+      x = box["x"] + inches_to_x(0.20),
+      y = box["y"] + box["h"] + inches_to_y(0.04),
+      hjust = 0,
+      vjust = 0,
+      fontfamily = font_family,
+      size = font_size[["inset_info"]],
+      color = landscape_colors[[area_name]]
+    )
+}
 
 
 output_png <- file.path(
   output_directory,
-  "Figure_StudyArea_Location_100FINAL.png"
+  paste0(
+    "Figure_StudyArea_Location_",
+    output_suffix,
+    ".png"
+  )
 )
 
 
 output_pdf <- file.path(
   output_directory,
-  "Figure_StudyArea_Location_100FINAL.pdf"
+  paste0(
+    "Figure_StudyArea_Location_",
+    output_suffix,
+    ".pdf"
+  )
+)
+
+
+writeLines(
+  paste0(
+    "Location of the study areas in Mato Grosso do Sul, Brazil. ",
+    "(a) South America and (b) Brazil, with Mato Grosso do Sul in red. ",
+    "(c) Hypsometric relief of Mato Grosso do Sul (",
+    contour_interval_ms,
+    " m contour lines) showing the three protected areas sampled; ",
+    "letters refer to the enlarged panels. ",
+    "(d) APA da Baía Negra (Pantanal; 5,420.58 ha); ",
+    "(e) Parque Nacional da Serra da Bodoquena (Cerrado; 77,021.58 ha); ",
+    "(f) Parque Estadual das Várzeas do Rio Ivinhema (Floodplain; 73,345.15 ha). ",
+    "Elevation from a digital elevation model obtained with the elevatr ",
+    "R package and processed with terra; administrative limits from ",
+    "Natural Earth and geobr; protected-area boundaries from MMA/CNUC. ",
+    "Datum SIRGAS 2000; panels a–b in geographic coordinates ",
+    "(EPSG:4674), panels c–f in Brazil Polyconic projection (EPSG:5880). ",
+    "Sampling period: ",
+    sampling_period,
+    "."
+  ),
+  file.path(
+    output_directory,
+    paste0(
+      "Figure_StudyArea_Location_",
+      output_suffix,
+      "_caption.txt"
+    )
+  ),
+  useBytes = TRUE
 )
 
 
@@ -3216,9 +3402,10 @@ cat(
 ggplot2::ggsave(
   filename = output_png,
   plot = location_figure,
-  width = 11.2,
-  height = 11.2,
+  width = figure_width_in,
+  height = figure_height_in,
   units = "in",
+  device = ragg::agg_png,
   dpi = 600,
   bg = "white"
 )
@@ -3241,8 +3428,8 @@ pdf_device <- if (
 ggplot2::ggsave(
   filename = output_pdf,
   plot = location_figure,
-  width = 11.2,
-  height = 11.2,
+  width = figure_width_in,
+  height = figure_height_in,
   units = "in",
   device = pdf_device,
   bg = "white"
